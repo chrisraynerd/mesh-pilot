@@ -47,3 +47,16 @@ repeaters may not answer. This does not test onward coverage through the mesh.
 identity so others can learn about you. Repeaters may pass it onwards. It does
 not ask for replies, so it cannot confirm coverage. Each action sends once;
 wait one minute before retrying the same action.
+
+**Net** now separates Bluetooth connection, heard radio traffic and confirmed
+radio replies, with the age of each observation. **Stats** opens the previous
+counter/settings page. **Sent** keeps recent send outcomes after the temporary
+notice disappears. You can also tap a message without dragging to inspect it.
+Older messages may say their result was not recorded.
+
+To compare locations, choose **Net > Coverage > New test**, tap **Name this
+place**, type a short label and press **Done**, then **Start test**. Wait 30
+seconds. The notebook keeps your latest 12 tests, including inconclusive tests
+with no replies. Tap a test and then a repeater to inspect both signal readings.
+**Again** prepares a new test at the same place. Tests send only when started
+and respect the one-minute retry pause. An interrupted test is marked incomplete.

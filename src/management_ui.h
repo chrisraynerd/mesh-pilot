@@ -92,13 +92,14 @@ void beginTextEdit(int purpose) {
   upperCase=false;symbols=false;drawTextEditor();
 }
 void returnEditor() {
-  if(editorReturn==Screen::CHANNEL_EDIT)drawChannelEdit();
+  if(editorReturn==Screen::COVERAGE_NEW)drawCoverageNew();
+  else if(editorReturn==Screen::CHANNEL_EDIT)drawChannelEdit();
   else if(editorReturn==Screen::CONTACT_EDIT)drawContactEdit();
   else if(editorReturn==Screen::NODES)drawNodes();else drawDirectPicker();
 }
 void drawTextEditor() {
   screen=Screen::TEXT_EDIT;
-  const char* titles[]={"Find contact (blank clears)","Channel name","Channel key: 32 hex digits","Contact name","Public key: 64 hex digits"};header(titles[textPurpose]);
+  const char* titles[]={"Find contact (blank clears)","Channel name","Channel key: 32 hex digits","Contact name","Public key: 64 hex digits","Name this test location"};header(titles[textPurpose]);
   wrapped(displayText(editText),12,40,3);
   const char* normal[]={"qwertyuiop","asdfghjkl","zxcvbnm.,?"};
   const char* special[]={"1234567890","!@#$%&*()","-_=+/:;?'"};
@@ -248,6 +249,7 @@ bool managementTouch(int x,int y) {
         else if(textPurpose==1)editChannelName=editText;
         else if(textPurpose==2)editChannelKey=editText;
         else if(textPurpose==3)editContactName=editText;
+        else if(textPurpose==5)coveragePlace=editText;
         else editContactKey=editText;
         returnEditor();
       }

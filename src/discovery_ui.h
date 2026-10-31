@@ -58,9 +58,9 @@ bool dispatchDiscovery(NetworkAction action){
   bool scan=action==NetworkAction::DISCOVER;uint32_t now=millis();
   if(scan){
     uint32_t token;do{token=esp_random();}while(!token||token==nearby.tag);
-    nearby.begin(token,now);nearbyPage=0;nearbySelected=-1;
+    nearby.begin(token,now);nearbyPage=0;nearbySelected=-1;coverageDispatched();
     uint8_t q[11];discovery::request(q,token);lastDiscoveryAt=now;haveDiscoveryAttempt=true;
-    if(!sendCommand(q,sizeof(q),Pending::DISCOVER)){nearby.active=false;discoveryInfo="Request write failed; no reply confirmed.";}
+    if(!sendCommand(q,sizeof(q),Pending::DISCOVER)){nearby.active=false;discoveryInfo="Request write failed; no reply confirmed.";coverageFinished(field::TestState::WRITE_FAILED);}
   }else{
     uint8_t q[]={7,1};lastAdvertAt=now;haveAdvertAttempt=true;
     if(!sendCommand(q,sizeof(q),Pending::ADVERT))advertInfo="Advert write failed; transmission unconfirmed.";
@@ -70,19 +70,20 @@ bool dispatchDiscovery(NetworkAction action){
 bool handleDiscoveryReply(const Reply& r){
   if(r.code==0x8e){
     if(nearby.receive(r.data,r.length,millis(),haveSelfKey?selfPublicKey:nullptr)){
+      discovery::Result result{};discovery::parse(r.data,r.length,nearby.tag,result);coverageReply(result);
       discoveryInfo=String(nearby.count)+" repeater(s) replied; direct round trip.";Serial.println("Fresh nearby repeater reply matched this scan");refreshDiscovery();
     }return true;
   }
   if(pending!=Pending::DISCOVER&&pending!=Pending::ADVERT)return false;
   if(r.code!=0&&r.code!=1)return false;
   bool scan=pending==Pending::DISCOVER;pending=Pending::NONE;
-  if(scan){if(r.code==1){nearby.active=false;discoveryInfo="Discovery rejected / unsupported by radio.";}else discoveryInfo="Radio accepted request; listening for replies.";}
+  if(scan){if(r.code==1){nearby.active=false;discoveryInfo="Discovery rejected / unsupported by radio.";coverageFinished(field::TestState::REJECTED);}else {coverageAccepted();discoveryInfo="Radio accepted request; listening for replies.";}}
   else advertInfo=r.code==0?"Radio accepted advert; reach unconfirmed.":"Radio rejected advert; nothing confirmed.";
   Serial.println(scan?discoveryInfo:advertInfo);refreshDiscovery();return true;
 }
 void tickDiscovery(){
   if(nearby.active&&(!ready||!linkActive||nearby.expired(millis()))){
-    nearby.active=false;
+    nearby.active=false;coverageFinished((!ready||!linkActive)?field::TestState::INTERRUPTED:field::TestState::COMPLETE);
     discoveryInfo=(!ready||!linkActive)?"Radio link lost; discovery incomplete.":nearby.count?String(nearby.count)+" replied; tap a repeater for signal details.":"No replies; reach unconfirmed. Try outdoors.";
     refreshDiscovery();
   }
@@ -109,6 +110,7 @@ bool discoveryTouch(int x,int y){
   }
   bool scan=screen==Screen::NEARBY;
   bool start=scan?(x>=244&&x<=308&&y>=4&&y<=30):(x>=12&&x<=202&&y>=177&&y<=205);
+  if(start&&scan){queueNearbyScan(false);refreshDiscovery();return true;}
   if(start){
     String& info=scan?discoveryInfo:advertInfo;
     uint32_t last=scan?lastDiscoveryAt:lastAdvertAt;bool attempted=scan?haveDiscoveryAttempt:haveAdvertAttempt;

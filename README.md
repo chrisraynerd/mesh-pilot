@@ -2,7 +2,7 @@
 
 An independent, open-source, phone-free MeshCore terminal for ESP32 touchscreens.
 
-Current development version: **0.13.0**.
+Current development version: **0.14.0**.
 Start with [the short user guide](QUICK-START.md).
 Public source: https://github.com/chrisraynerd/mesh-pilot
 Licence: MIT; dependency notices are listed in THIRD_PARTY.md.
@@ -377,3 +377,80 @@ Boot fixtures exercise request encoding, signed signal values, current-tag
 matching, stale/truncated/routed/non-repeater rejection, self exclusion,
 deduplication, capacity, expiry across clock wrap, and separation of local OK
 from a received discovery reply. They do not transmit any RF requests.
+
+## Connection dashboard, saved results and coverage book (0.14)
+
+**Net** now opens a connection dashboard. It separately reports the Bluetooth
+link, the age of the last received RF packet, and the age/source of the last
+matched repeater/path reply or direct ACK. Evidence is scoped to the current
+radio session and labelled historical; there is no permanent green "mesh
+connected" indicator. The latest nearby search shows its age and outcome.
+**Net > Stats** retains local counters, Clock, Auto link and Leave.
+
+Tap a message without dragging to inspect it. Incoming messages are identified
+as received. Older outgoing messages without stored evidence say their result
+was not recorded. New send attempts also appear under **Net > Sent**, including
+rejected requests that left their draft intact. The latest 80 attempts per radio
+retain timestamps, destination labels and the outcome (radio acceptance,
+matched repeat/ACK, timeout, rejection, unavailable tracking or interruption).
+Results are stored separately from the existing journal using a checksummed,
+versioned, atomically replaced file. Positive evidence is never overwritten by a
+later local acknowledgement or timeout. Late evidence can upgrade an uncertain
+result while its existing three-minute tracking window remains available.
+A restart/disconnection ends unfinished tracking and does not resend anything.
+Unread markers, channel boundaries and original message journal formats remain
+unchanged. Results that cannot be saved are flagged; old messages do not gain
+invented delivery results.
+
+Each send freezes its original text/destination before requesting transmission,
+so edits or navigation while awaiting a reply cannot attach the result to a
+changed draft. A successful local acceptance only clears the matching draft.
+The next outgoing timestamp also advances past saved outgoing records, making
+new result IDs distinct across restart. An ambiguous send-command timeout now
+reconnects before accepting more commands, preventing a late reply from being
+assigned to a subsequent send.
+
+**Net > Coverage > New test** opens a place-name editor and a Start test button.
+The test sends one standard nearby discovery request and listens for 30 seconds,
+using the same firmware checks and 60-second cooldown as ordinary discovery.
+Naming a place does not supply GPS coordinates. The latest 12 tests per radio
+are retained, with up to 32 unique full public keys and request SNR, response
+SNR and response RSSI. Tap a saved test, then a repeater, to compare the readings.
+**Again** prepares another test at that place; it does not transmit by itself.
+
+An empty completed test is inconclusive. A rejected command, uncertain write,
+Bluetooth interruption or interrupted reboot has its own result. The record is
+saved before requesting RF; if initial storage fails no test is transmitted.
+Changes during listening are checkpointed, and the final result is saved when
+the window closes. Interrupted saved tests are marked incomplete on reload.
+Only matching fresh replies from this scan enter its notebook record. Existing
+contacts are never counted as replies. Historical identity labels can reflect
+the current saved contact name; full public keys identify the measured nodes.
+
+The notebook uses a second checksummed, atomic file. Streaming reads/writes
+avoid a large contiguous serialization buffer. No private channel keys enter
+either new file; both are local, per radio and excluded from Git. Test and send
+timestamps are UTC, with approximate-clock flags retained when applicable.
+
+Boot fixtures cover result codecs, invalid flags/lengths, stable positive
+results, late confirmations, restart recovery, signed readings, deduplication
+and limits. USB **FIELDTEST** uses a reserved temporary namespace to exercise
+production save/load, replacement, empty results, all 80 send records, all
+12 x 32 coverage replies, and checksum/truncation rejection. It restores user
+RAM and removes fixture files. **FIELD?** prints only counts and storage flags.
+Neither command sends RF messages. Live UI feel and positive RF outcomes still
+require testing on the actual mesh.
+
+### 0.14 hardware verification
+
+Application-only image installed on the confirmed CYD with a verified flash
+hash; image size 846,176 bytes (839,605 bytes linked flash), static RAM 43,564
+bytes, boot free heap about 189 KB. SHA-256:
+`f3f89081b5830701c055f09dce6883653ddce5812fb18161b2fe01905e767615`.
+All boot fixtures passed. Encrypted bonded reconnection succeeded and the radio
+loaded 147 contacts. The isolated FIELDTEST passed, including the full on-disk
+bounds and corruption rejection; a subsequent diagnostic confirmed no synthetic
+results/tests remained in user RAM. User status remained ready=1, no retry,
+no draft, and Heltec battery 4069 mV. These installation checks transmitted no
+RF test messages. Positive over-the-air discovery, repeat and recipient-ACK
+results still depend on coverage and remain unverified by these checks.

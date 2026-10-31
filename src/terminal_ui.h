@@ -62,6 +62,8 @@ String idleStatus() {
   int unread=allUnread();if(unread)result+=" | "+String(unread)+" unread";
   if(readSaveFailed)result="Read markers not saved; check storage";
   if(draftSaveFailed)result="Draft not saved; check storage";
+  if(sendResultsFailed)result="Send results not saved; check storage";
+  if(coverageFailed)result="Coverage notes not saved; check storage";
   return result;
 }
 void scheduleReconnect() {

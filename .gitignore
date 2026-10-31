@@ -16,3 +16,6 @@ device-backup/
 work/
 credentials*
 secrets*
+
+*.sent
+*.coverage

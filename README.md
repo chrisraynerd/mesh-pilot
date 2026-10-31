@@ -2,7 +2,7 @@
 
 An independent, open-source, phone-free MeshCore terminal for ESP32 touchscreens.
 
-Current development version: **0.15.0**.
+Current development version: **0.15.1**.
 Start with [the short user guide](QUICK-START.md).
 Public source: https://github.com/chrisraynerd/mesh-pilot
 Licence: MIT; dependency notices are listed in THIRD_PARTY.md.
@@ -387,7 +387,7 @@ radio session and labelled historical; there is no permanent green "mesh
 connected" indicator. The latest nearby search shows its age and outcome.
 **Net > Stats** retains local counters, Clock, Auto link and Leave.
 
-Tap a message without dragging to inspect it. Incoming messages are identified
+Hold a message still for about 0.7 seconds, then release to inspect it. Incoming messages are identified
 as received. Older outgoing messages without stored evidence say their result
 was not recorded. New send attempts also appear under **Net > Sent**, including
 rejected requests that left their draft intact. The latest 80 attempts per radio
@@ -531,3 +531,14 @@ repeatably reachable target and unchanged physical conditions.
 A Bluetooth reconnection on the same radio returns to the saved antenna stage
 or results view where possible, with testing paused. A full CYD restart requires
 opening the saved comparison again. Neither path resumes transmissions by itself.
+
+### 0.15.1 deliberate message-details gesture
+
+Short taps no longer open message details. Hold still for at least 700 ms of
+observed touch, then release. Any recognised scroll, a six-pixel excursion in
+either direction, invalid coordinates or a gap of over 100 ms between samples
+permanently cancels details for that gesture. Returning to the starting point
+does not re-enable it. Existing scroll filtering, release debounce and buffered
+rendering remain unchanged. Boot fixtures cover short touches, stationary holds,
+scroll cancellation, horizontal motion, gaps and clock wrap. Net > Sent remains
+available for reviewing send results without a hold.

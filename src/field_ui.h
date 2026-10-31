@@ -82,7 +82,7 @@ void drawMessageDetail(){
   if(detailHasMessage)wrapped(detailMessage.text,12,143,2);
   smallButton(12,177,92,28,"Back");smallButton(110,177,110,28,"All sends");
   lcd.setTextColor(sendResultsFailed?TFT_ORANGE:TFT_WHITE,BG);
-  lcd.drawString(sendResultsFailed?"Result not safely saved; storage unavailable.":result?"Result recorded: "+fieldUtc(result->updated):"Tap a message in the conversation for details.",12,215,1);
+  lcd.drawString(sendResultsFailed?"Result not safely saved; storage unavailable.":result?"Result recorded: "+fieldUtc(result->updated):"Hold a message still, then release for details.",12,215,1);
 }
 void inspectMessage(uint64_t id){
   for(const auto& m:messages){uint64_t candidate=(uint64_t(m.outgoing?0x80000000u:m.sequence)<<32)|m.timestamp;if(candidate!=id)continue;

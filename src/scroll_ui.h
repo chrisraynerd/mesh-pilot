@@ -11,6 +11,7 @@ bool chatGesture=false,chatMoved=false;
 int chatSamples[3]={},chatSample=0,chatLastY=0,chatStartY=0;
 uint32_t chatLastDown=0,chatLastPaint=0;
 uint64_t chatTapId=0;
+scroll_tools::DetailHold chatDetailHold;
 
 bool messageScreen(){return screen==Screen::CHAT||screen==Screen::DIRECT_CHAT||screen==Screen::INBOX;}
 void releaseChatCanvas(){if(chatCanvasReady){chatCanvas.deleteSprite();chatCanvasReady=false;}chatCanvasAttempted=false;chatGesture=false;}
@@ -115,22 +116,23 @@ bool handleChatDrag(bool down) {
   if(displayDimmed)return false;
   if(!down) {
     if(!chatGesture)return false;
-    if(millis()-chatLastDown>=70){chatGesture=false;if(!chatMoved&&chatTapId){inspectMessage(chatTapId);return true;}paintTimeline();chatButtons();paintFooter();}
+    if(millis()-chatLastDown>=70){chatGesture=false;if(chatDetailHold.opens(chatMoved)&&chatTapId){inspectMessage(chatTapId);return true;}paintTimeline();chatButtons();paintFooter();}
     return true;
   }
   if(!chatGesture&&pressed)return false;
   TS_Point raw=touch.getPoint();int x=lroundf(ax*raw.x+bx*raw.y+cx),y=lroundf(ay*raw.x+by*raw.y+cy);
   if(!chatGesture) {
     if(x<CHAT_X||x>=CHAT_X+CHAT_WIDTH||y<CHAT_Y||y>=CHAT_Y+CHAT_HEIGHT)return false;
-    chatGesture=true;chatMoved=false;chatStartY=chatLastY=y;chatSample=0;chatTapId=0;
+    chatGesture=true;chatMoved=false;chatStartY=chatLastY=y;chatSample=0;chatTapId=0;chatDetailHold.begin(x,y,millis());
     int row=(y-CHAT_Y+chatPosition.offset-max(0,CHAT_HEIGHT-chatPosition.height));
     if(row>=0&&row/CHAT_LINE<int(timelineRows.size()))chatTapId=timelineRows[row/CHAT_LINE].id;
     for(auto& sample:chatSamples)sample=y;
   }
   lastTouchAt=chatLastDown=millis();
-  if(x<-10||x>330||y<-20||y>260)return true;
+  if(x<-10||x>330||y<-20||y>260){chatDetailHold.eligible=false;return true;}
   chatSamples[chatSample++%3]=constrain(y,0,239);int filtered=scroll_tools::median(chatSamples[0],chatSamples[1],chatSamples[2]);
   if(!chatMoved&&abs(filtered-chatStartY)>=4)chatMoved=true;
+  chatDetailHold.observe(x,y,millis(),chatMoved);
   if(chatMoved) {
     int delta=constrain(filtered-chatLastY,-48,48);chatLastY+=delta;bool hadNotice=chatPosition.newMessages;
     chatPosition.drag(delta);

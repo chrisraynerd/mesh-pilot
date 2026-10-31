@@ -16,6 +16,10 @@ jobs:
           python-version: '3.11'
       - name: Install PlatformIO
         run: python -m pip install platformio==6.2.0
+      - name: Check scroll gestures
+        run: |
+          c++ -std=c++11 -I src tests/scroll_gestures.cpp -o /tmp/mesh-pilot-scroll-check
+          /tmp/mesh-pilot-scroll-check
       - name: Build E32R28T firmware
         run: pio run
       - name: Save firmware artifacts

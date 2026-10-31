@@ -51,7 +51,8 @@ wait one minute before retrying the same action.
 **Net** now separates Bluetooth connection, heard radio traffic and confirmed
 radio replies, with the age of each observation. **Stats** opens the previous
 counter/settings page. **Sent** keeps recent send outcomes after the temporary
-notice disappears. You can also tap a message without dragging to inspect it.
+notice disappears. To inspect a message, hold it still for about 0.7 seconds, then release.
+Short taps do nothing; dragging scrolls.
 Older messages may say their result was not recorded.
 
 To compare locations, choose **Net > Coverage > New test**, tap **Name this

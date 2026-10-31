@@ -2,7 +2,7 @@
 
 An independent, open-source, phone-free MeshCore terminal for ESP32 touchscreens.
 
-Current development version: **0.12.1**.
+Current development version: **0.13.0**.
 Start with [the short user guide](QUICK-START.md).
 Public source: https://github.com/chrisraynerd/mesh-pilot
 Licence: MIT; dependency notices are listed in THIRD_PARTY.md.
@@ -342,3 +342,38 @@ This avoids the large contiguous allocation and keeps exact RGB565 colours.
 Allocation can shrink to a one-row strip using 594 bytes. A RAM reference-image
 fixture compares pixels between complete and strip-rendered images, including
 text crossing strip and viewport boundaries. It performs no display or RF writes.
+
+## Nearby discovery and flood adverts (0.13)
+
+**Net > Discover > Discover nearby > Scan** sends one zero-hop discovery request
+and listens for 30 seconds. Only matching replies to that request appear here;
+the saved Nodes list remains separate. Up to 32 unique repeaters are shown.
+A reply confirms a direct two-way radio exchange at that moment, not onward mesh
+coverage or delivery of a channel message. Hidden, forwarding-disabled, older or
+rate-limited repeaters may not reply, so an empty result is inconclusive.
+
+Tap a result for request SNR measured by the repeater, reply SNR/RSSI measured by
+the Heltec, and reply age. Existing contacts supply names; unknown keys use a
+short public-key label. **Contact details** opens an existing record or a new
+repeater record for review and explicit Save. Discovery responses are not signed;
+this is a reachability indication, not authenticated proof of identity.
+
+**Net > Discover > Flood advert > Send flood advert** announces the Heltec's name
+and public key, plus location if its existing advert policy enables location.
+Repeaters may relay it under the radio's existing flood scope. The command's OK
+means the local radio accepted the advert, not that another radio received it.
+It does not solicit responses and is not a repeater search.
+
+Both actions require a tap, send once, and have a 60-second retry cooldown.
+Neither runs on boot/reconnect or automatically repeats. Discovery needs
+companion protocol v8 or newer. Command failure/timeouts remain unconfirmed.
+Read stats is now beside Leave on the Network checks screen.
+
+Protocol sources: [MeshCore control payloads](https://github.com/meshcore-dev/MeshCore/blob/main/docs/payloads.md),
+[companion commands and control pushes](https://github.com/meshcore-dev/MeshCore/blob/main/examples/companion_radio/MyMesh.cpp),
+and [repeater discovery responder](https://github.com/meshcore-dev/MeshCore/blob/main/examples/simple_repeater/MyMesh.cpp).
+
+Boot fixtures exercise request encoding, signed signal values, current-tag
+matching, stale/truncated/routed/non-repeater rejection, self exclusion,
+deduplication, capacity, expiry across clock wrap, and separation of local OK
+from a received discovery reply. They do not transmit any RF requests.

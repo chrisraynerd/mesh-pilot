@@ -37,3 +37,13 @@ If you see an uncertain send, check before retrying. A saved contact or Bluetoot
 link alone does not establish a working path through the mesh.
 
 For contact/channel entry details, see [the contact and channel guide](QUICK-START-0.9.md).
+
+To check nearby repeaters, open **Net > Discover > Discover nearby > Scan**.
+Wait 30 seconds. A listed reply confirms a direct two-way link at that moment.
+Tap it for signal details. No replies means unconfirmed; hidden or older
+repeaters may not answer. This does not test onward coverage through the mesh.
+
+**Net > Discover > Flood advert > Send flood advert** announces your Heltec's
+identity so others can learn about you. Repeaters may pass it onwards. It does
+not ask for replies, so it cannot confirm coverage. Each action sends once;
+wait one minute before retrying the same action.

@@ -10,6 +10,12 @@ Bluetooth pairing and reconnects automatically while **Auto link** is on.
 - **Setup** shows Heltec battery voltage and storage, brightness, dimming and
   automatic-link controls. **Clock** sets UTC time offline.
 
+In a conversation, hold the stylus on the text and drag **down for older**
+messages or **up toward newer** messages. **Latest v** jumps to the bottom.
+New messages follow automatically only while you are at the bottom; otherwise
+**New messages v** lets you jump down when ready. Write and Back stay fixed.
+There is no need to press Older/Newer buttons.
+
 Numbers beside channels and people indicate unread messages. While the screen
 is dimmed, new messages stay unread. The first tap wakes the screen and does
 not press a button. Bluetooth and reception continue while dimmed.

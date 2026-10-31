@@ -17,6 +17,7 @@
 #include "terminal_tools.h"
 #include "draft_tools.h"
 #include "build_stamp.h"
+#include "scroll_tools.h"
 
 TFT_eSPI lcd;
 SPIClass touchBus(HSPI);
@@ -89,7 +90,12 @@ uint8_t channelKeys[40][16],selfPublicKey[32];
 bool haveChannelKey[40]={},haveSelfKey=false;
 String wireName;
 uint8_t maxChannels=0,channelLoading=0,currentChannel=0;
-int channelPage=0,historyPage=0;
+int channelPage=0;
+bool resetChatView=true;
+void releaseChatCanvas();
+bool messageScreen();
+bool handleChatDrag(bool down);
+String hexText(const uint8_t* data,size_t length);
 String draft,statusLine;
 bool composingDirect=false,contactsForDirect=false;
 uint8_t directPeer[32]={};
@@ -205,6 +211,7 @@ String displayText(const String& input) {
   return String(text_render::ascii(reinterpret_cast<const uint8_t*>(input.c_str()),input.length()).c_str());
 }
 void header(const char* title) {
+  if(!messageScreen())releaseChatCanvas();
   lcd.fillScreen(BG);
   lcd.setTextColor(TFT_WHITE, BG);
   lcd.drawString(displayText(String(title)), 12, 10, 2);
@@ -217,7 +224,7 @@ void button(int x, int y, int w, const char* label) {
 }
 void home() {
   screen=Screen::HOME;
-  header("Mesh Pilot / 0.11");
+  header("Mesh Pilot / 0.12");
   lcd.drawString("Screen + touch ready",12,48,2);
   lcd.drawString("Heltec stays on MeshCore firmware.",12,72,2);
   lcd.drawString("Turn on your Heltec, then scan.",12,96,2);
@@ -596,7 +603,6 @@ std::vector<int> visibleMessages(bool inbox) {
 }
 struct ChatFlow { String text; int userEnd; };
 struct ChatRow { int start,end; };
-struct ChatSlice { int message,startRow,rows; };
 ChatFlow chatFlow(const ChatMessage& m) {
   uint32_t tod=m.timestamp%86400;
   char stamp[8];snprintf(stamp,sizeof(stamp),"%02u:%02u",unsigned(tod/3600),unsigned((tod%3600)/60));
@@ -623,41 +629,8 @@ std::vector<ChatRow> chatRows(const String& text) {
   }
   return rows;
 }
-void historyBody(bool inbox) {
-  auto list=visibleMessages(inbox);
-  // Pack complete messages into the available lines, newest page first.
-  // Exceptionally long messages continue onto another page without truncation.
-  const int pageLines=11;
-  std::vector<std::vector<ChatSlice>> pages;
-  std::vector<ChatSlice> page;int remaining=pageLines;
-  for(int i=int(list.size())-1;i>=0;i--) {
-    ChatFlow flow=chatFlow(messages[list[i]]);int endRow=chatRows(flow.text).size();
-    if(endRow>remaining&&!page.empty()){pages.push_back(page);page.clear();remaining=pageLines;}
-    while(endRow>0) {
-      int count=min(endRow,remaining);page.push_back({list[i],endRow-count,count});remaining-=count;endRow-=count;
-      if(!remaining){pages.push_back(page);page.clear();remaining=pageLines;}
-    }
-  }
-  if(!page.empty())pages.push_back(page);
-  historyPage=constrain(historyPage,0,max(0,int(pages.size())-1));
-  lcd.setTextSize(1);lcd.setTextFont(1);lcd.setTextDatum(TL_DATUM);
-  int y=43;
-  if(!pages.empty())for(int i=int(pages[historyPage].size())-1;i>=0;i--) {
-    ChatSlice slice=pages[historyPage][i];noteRead(messages[slice.message]);ChatFlow flow=chatFlow(messages[slice.message]);auto rows=chatRows(flow.text);
-    for(int row=slice.startRow;row<slice.startRow+slice.rows;row++,y+=11) {
-      int start=rows[row].start,end=rows[row].end,pos=start;
-      while(pos<end) {
-        uint16_t colour=pos<6?uint16_t(0x5C7F):pos<flow.userEnd?uint16_t(TFT_ORANGE):uint16_t(TFT_WHITE);
-        int stop=pos<6?min(end,6):pos<flow.userEnd?min(end,flow.userEnd):end;
-        lcd.setTextColor(colour,BG);lcd.drawString(flow.text.substring(pos,stop),12+(pos-start)*6,y,1);pos=stop;
-      }
-    }
-  }
-  if(list.empty()){lcd.setTextColor(TFT_WHITE,BG);lcd.drawString("No messages yet.",12,55,2);}
-  smallButton(12,177,68,27,"Older");smallButton(84,177,68,27,"Newer");
-  smallButton(156,177,68,27,inbox&&screen!=Screen::DIRECT_CHAT?"Channels":"Write");smallButton(228,177,80,27,"Back");
-  paintFooter();
-}
+#include "scroll_ui.h"
+
 void drawChat() { screen=Screen::CHAT;header(channels[currentChannel].substring(0,30).c_str());lcd.setTextColor(0x5C7F,BG);lcd.drawString("UTC",284,16,1);historyBody(false); }
 void drawInbox() { screen=Screen::INBOX;header("Direct messages");smallButton(230,4,48,26,"To");lcd.setTextColor(0x5C7F,BG);lcd.drawString("UTC",284,16,1);historyBody(true); }
 void drawDirectChat() {screen=Screen::DIRECT_CHAT;header(displayText(directName).substring(0,30).c_str());lcd.setTextColor(0x5C7F,BG);lcd.drawString("UTC",284,16,1);historyBody(true);}
@@ -717,9 +690,8 @@ void processMessage(const Reply& reply) {
   bool saved=savePacket(reply.data,reply.length);
   decodeHistory(reply.data,reply.length);
   statusLine=saved?"New message saved":"Storage error; reception paused";
-  bool older=(screen==Screen::CHAT||screen==Screen::DIRECT_CHAT||screen==Screen::INBOX)&&historyPage>0;
-  if(older){statusLine="New message; tap Newer to read";paintFooter();}
-  else {refreshMessageScreen();if(screen==Screen::COMPOSE)paintFooter();if(screen==Screen::DIRECT_PICK||screen==Screen::NODES)refreshNetwork();}
+  noteTimelineIncoming(reply);
+  refreshMessageScreen();if(screen==Screen::COMPOSE)paintFooter();if(screen==Screen::DIRECT_PICK||screen==Screen::NODES)refreshNetwork();
 }
 void recordOutgoing(bool confirmed) {
   uint8_t data[131];uint32_t stamp=pendingSend>=0?sends[pendingSend].timestamp:nowSeconds();size_t offset;
@@ -984,7 +956,7 @@ void processReplies() {
           else {s.done=true;deliveryFeedback("Radio accepted; repeat check unavailable",TFT_ORANGE);}
         }
       }
-      recordOutgoing(true);draft="";clearSavedDraft();historyPage=0;if(composingDirect)drawDirectChat();else drawChat();
+      recordOutgoing(true);draft="";clearSavedDraft();resetChatView=true;if(composingDirect)drawDirectChat();else drawChat();
     }
     else if(job==Pending::SET_CLOCK&&r.code==0){pending=Pending::NONE;Serial.println("Heltec accepted clock synchronisation");}
   }
@@ -1000,7 +972,7 @@ void processReplies() {
 }
 void setup() {
   Serial.begin(115200);delay(300);
-  Serial.println("Mesh Pilot 0.11 / E32R28T");
+  Serial.println("Mesh Pilot 0.12 / E32R28T");
   pinMode(21,OUTPUT);digitalWrite(21,HIGH);
   lcd.init();lcd.setRotation(1);
   touchBus.begin(25,39,32,33);touch.begin(touchBus);touch.setRotation(1);
@@ -1008,8 +980,8 @@ void setup() {
   brightness=prefs.getUChar("light",255);brightness=max(uint8_t(40),brightness);autoDim=prefs.getBool("dim",true);
   ledcSetup(7,5000,8);ledcAttachPin(21,7);ledcWrite(7,brightness);lastTouchAt=millis();
   clockBase=max(uint32_t(BUILD_UNIX_TIME),uint32_t(prefs.getULong("timeLast",0)));clockAt=millis();
-  if(!protocol::selfTest()||!diagnostics::selfTest()||!text_render::selfTest()||!clock_tools::selfTest()||!send_tracking::selfTest()||!management::selfTest()||!managementUiSelfTest()||!terminal_tools::selfTest()||!terminalSelfTest()||!draft_tools::selfTest()) { header("Protocol/text/send check failed");while(true)delay(1000); }
-  Serial.println("Message, network, Unicode, clock, delivery, management and terminal fixtures passed");
+  if(!protocol::selfTest()||!diagnostics::selfTest()||!text_render::selfTest()||!clock_tools::selfTest()||!send_tracking::selfTest()||!management::selfTest()||!managementUiSelfTest()||!terminal_tools::selfTest()||!terminalSelfTest()||!draft_tools::selfTest()||!scroll_tools::selfTest()||!scrollUiSelfTest()) { header("Protocol/text/send check failed");while(true)delay(1000); }
+  Serial.println("Message, network, Unicode, clock, delivery, management, terminal and scrolling fixtures passed");
   storageReady=LittleFS.begin(false);
   if(!storageReady&&!prefs.getBool("fsinit",false))storageReady=LittleFS.begin(true);
   if(storageReady)prefs.putBool("fsinit",true);
@@ -1049,6 +1021,7 @@ void loop() {
   tickNetwork();
   pollMessages();
   bool down=touch.touched();
+  if(handleChatDrag(down)){pressed=down;delay(10);return;}
   if(down && !pressed) {
     bool waking=displayDimmed;lastTouchAt=millis();displayDimmed=false;ledcWrite(7,brightness);
     if(waking){refreshMessageScreen();pressed=down;delay(20);return;}
@@ -1119,20 +1092,19 @@ void loop() {
         int row=(y-42)/32;auto list=activeChannels();int item=channelPage*4+row;
         if((y-42)%32<28&&item<int(list.size())) {
           if(composingDirect||currentChannel!=list[item])draft="";
-          composingDirect=false;currentChannel=list[item];historyPage=0;drawChat();
+          composingDirect=false;currentChannel=list[item];resetChatView=true;drawChat();
         }
       } else if(y>=177&&y<=204) {
         if(x>=12&&x<=80){channelPage--;drawChannels();}
         else if(x>=84&&x<=152){channelPage++;drawChannels();}
-        else if(x>=156&&x<=224){historyPage=0;drawInbox();}
+        else if(x>=156&&x<=224){resetChatView=true;drawInbox();}
         else if(x>=228&&x<=308){drawDirectPicker();if(!contactsLoaded)requestContacts(true);}
       }
     } else if(screen==Screen::CHAT||screen==Screen::INBOX||screen==Screen::DIRECT_CHAT) {
       bool inbox=screen==Screen::INBOX,direct=screen==Screen::DIRECT_CHAT;
       if(inbox&&x>=230&&x<=278&&y>=4&&y<=30){drawDirectPicker();if(contacts.empty())requestContacts(true);}
       else if(y>=177&&y<=204) {
-        if(x>=12&&x<=80) { historyPage++;if(inbox)drawInbox();else if(direct)drawDirectChat();else drawChat(); }
-        else if(x>=84&&x<=152) { historyPage--;if(inbox)drawInbox();else if(direct)drawDirectChat();else drawChat(); }
+        if(x>=12&&x<=152)jumpToLatest();
         else if(x>=156&&x<=224) { if(inbox)drawChannels();else {if(composingDirect!=direct)draft="";composingDirect=direct;statusLine="";drawCompose();} }
         else if(x>=228&&x<=308){if(direct)drawDirectPicker();else drawChannels();}
       }

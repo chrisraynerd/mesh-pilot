@@ -2,7 +2,7 @@
 
 An independent, open-source, phone-free MeshCore terminal for ESP32 touchscreens.
 
-Current development version: **0.11**.
+Current development version: **0.12**.
 Start with [the short user guide](QUICK-START.md).
 Public source: https://github.com/chrisraynerd/mesh-pilot
 Licence: MIT; dependency notices are listed in THIRD_PARTY.md.
@@ -34,12 +34,38 @@ for review after restart. Only one active draft is kept per radio; selecting a
 different recipient clears it. No draft is sent or retried automatically.
 
 Chat uses blue time, orange username and white body in a continuous wrapped
-flow, each message beginning on the next line. Eleven lines fit on a page.
-Complete messages stay together when possible; very long messages continue.
-**Older/Newer** browses history. Received UTF-8 is decoded before rendering;
+flow, each message beginning on the next line. Conversations now scroll
+continuously instead of being split into pages. Drag the text downward to reveal
+older messages and upward to return toward newer ones. **Latest** jumps to the
+bottom; **Write** and **Back** remain fixed underneath. Received UTF-8 is decoded before rendering;
 known emoji become readable labels such as [cat] and [hand], accents are
 transliterated and unsupported characters receive [U+XXXX] labels. Raw journal
 bytes remain unchanged. Names in channel messages are sender-supplied text.
+
+## Stylus scrolling (0.12)
+
+Channel conversations, individual direct conversations and the direct inbox use
+a continuous text timeline over the same latest 80 records. New conversations
+open at the bottom; short conversations are bottom-aligned. New messages follow
+the bottom only while already there. When reading older messages, the top
+visible message/line stays anchored, including when retention removes an earlier
+message. If the anchor itself ages out, the oldest retained text is shown.
+**New messages v** appears when relevant messages arrive below the reading
+position. **Latest v** returns to the bottom at any time.
+
+Dragging uses held single-touch readings, a small movement threshold, a three-
+sample median filter and release debounce. It has no momentum scrolling.
+Gestures beginning in the message area consume the touch until release, so
+dragging onto Write or Back does not activate a button. A scrollbar indicates
+position. An 8-bit offscreen buffer limits flicker and uses about 38 KB while
+chat is open; it is released on other screens. If allocation fails, clipped
+direct drawing keeps the view usable. Existing time/name/message colours,
+history storage, send controls and dim-to-wake behaviour are retained.
+
+Boot fixtures cover scroll bounds, follow versus hold behaviour, relevant versus
+unrelated arrivals, stable anchors after an append and after an oldest-message
+eviction, and the jump to latest. No test messages are written to the journal
+or sent over the radio. Physical drag feel requires user review.
 
 ## Standalone operation (0.10)
 
@@ -55,8 +81,8 @@ bytes remain unchanged. Names in channel messages are sender-supplied text.
   display is dimmed and are marked when the conversation is woken. Markers are stored per radio in
   a small checksummed, atomically replaced local file; interrupted/corrupt marker
   files fall back to unread rather than changing message history. Counts cover
-  the latest 80 messages kept in RAM. Incoming messages preserve an older page
-  and a compose draft instead of moving the reader to a different page.
+  the latest 80 messages kept in RAM. Incoming messages preserve a scrolled reading position
+  and a compose draft instead of moving the reader to a different position.
 - An unexpected Bluetooth drop preserves the draft in RAM and returns to the
   conversation/composer after a successful reconnect. Manual Leave cancels
   retries. Missing/failed pairing stops retries and asks for a PIN through the
@@ -295,3 +321,11 @@ contacts, five unread messages and no synthetic draft left behind. No test RF
 message was sent. Screen brightness/dimming and wake-button ergonomics await
 human interaction; draft persistence is verified through the production storage
 and restore helpers without injecting a draft into a user's journal.
+
+### 0.12 hardware verification
+
+Compiled and flashed the application-only image with verified hashes. Boot
+passed all existing checks plus scroll-model and timeline-anchor fixtures;
+automatic encrypted/bonded reconnection succeeded. Free heap at Ready was
+191,320 bytes before opening a chat buffer. Physical stylus drag feel awaits
+user testing. No test RF message was sent and message journals were preserved.

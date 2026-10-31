@@ -30,7 +30,7 @@ void openDirectContact() {
   if(nodeSelected<0||nodeSelected>=int(contacts.size())||contacts[nodeSelected].type!=1)return;
   auto& c=contacts[nodeSelected];if(!c.saved){managementInfo="Save this discovery first (Edit > Save)";drawNode();return;}
   if(!composingDirect||memcmp(directPeer,c.key,32))draft="";
-  composingDirect=true;memcpy(directPeer,c.key,32);directName=c.name;historyPage=0;drawDirectChat();
+  composingDirect=true;memcpy(directPeer,c.key,32);directName=c.name;resetChatView=true;drawDirectChat();
 }
 void drawChannelSlots() {
   screen=Screen::CHANNEL_SLOTS;header("Manage channels");

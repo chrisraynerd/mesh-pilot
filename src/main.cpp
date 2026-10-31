@@ -224,7 +224,7 @@ void button(int x, int y, int w, const char* label) {
 }
 void home() {
   screen=Screen::HOME;
-  header("Mesh Pilot / 0.12");
+  header("Mesh Pilot / 0.12.1");
   lcd.drawString("Screen + touch ready",12,48,2);
   lcd.drawString("Heltec stays on MeshCore firmware.",12,72,2);
   lcd.drawString("Turn on your Heltec, then scan.",12,96,2);
@@ -972,7 +972,7 @@ void processReplies() {
 }
 void setup() {
   Serial.begin(115200);delay(300);
-  Serial.println("Mesh Pilot 0.12 / E32R28T");
+  Serial.println("Mesh Pilot 0.12.1 / E32R28T");
   pinMode(21,OUTPUT);digitalWrite(21,HIGH);
   lcd.init();lcd.setRotation(1);
   touchBus.begin(25,39,32,33);touch.begin(touchBus);touch.setRotation(1);
@@ -980,7 +980,7 @@ void setup() {
   brightness=prefs.getUChar("light",255);brightness=max(uint8_t(40),brightness);autoDim=prefs.getBool("dim",true);
   ledcSetup(7,5000,8);ledcAttachPin(21,7);ledcWrite(7,brightness);lastTouchAt=millis();
   clockBase=max(uint32_t(BUILD_UNIX_TIME),uint32_t(prefs.getULong("timeLast",0)));clockAt=millis();
-  if(!protocol::selfTest()||!diagnostics::selfTest()||!text_render::selfTest()||!clock_tools::selfTest()||!send_tracking::selfTest()||!management::selfTest()||!managementUiSelfTest()||!terminal_tools::selfTest()||!terminalSelfTest()||!draft_tools::selfTest()||!scroll_tools::selfTest()||!scrollUiSelfTest()) { header("Protocol/text/send check failed");while(true)delay(1000); }
+  if(!protocol::selfTest()||!diagnostics::selfTest()||!text_render::selfTest()||!clock_tools::selfTest()||!send_tracking::selfTest()||!management::selfTest()||!managementUiSelfTest()||!terminal_tools::selfTest()||!terminalSelfTest()||!draft_tools::selfTest()||!scroll_tools::selfTest()||!scrollUiSelfTest()||!scrollBandSelfTest()) { header("Protocol/text/send check failed");while(true)delay(1000); }
   Serial.println("Message, network, Unicode, clock, delivery, management, terminal and scrolling fixtures passed");
   storageReady=LittleFS.begin(false);
   if(!storageReady&&!prefs.getBool("fsinit",false))storageReady=LittleFS.begin(true);

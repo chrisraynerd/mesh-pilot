@@ -2,7 +2,7 @@
 
 An independent, open-source, phone-free MeshCore terminal for ESP32 touchscreens.
 
-Current development version: **0.12**.
+Current development version: **0.12.1**.
 Start with [the short user guide](QUICK-START.md).
 Public source: https://github.com/chrisraynerd/mesh-pilot
 Licence: MIT; dependency notices are listed in THIRD_PARTY.md.
@@ -57,9 +57,10 @@ Dragging uses held single-touch readings, a small movement threshold, a three-
 sample median filter and release debounce. It has no momentum scrolling.
 Gestures beginning in the message area consume the touch until release, so
 dragging onto Write or Back does not activate a button. A scrollbar indicates
-position. An 8-bit offscreen buffer limits flicker and uses about 38 KB while
-chat is open; it is released on other screens. If allocation fails, clipped
-direct drawing keeps the view usable. Existing time/name/message colours,
+position. Completed 16-bit strips are painted offscreen before being pushed to
+the LCD. A 16-row strip uses about 9.5 KB; allocation retries with smaller strips
+down to a single row if memory is fragmented. The buffer is released on other
+screens. An emergency direct-drawing fallback remains if even one row cannot fit. Existing time/name/message colours,
 history storage, send controls and dim-to-wake behaviour are retained.
 
 Boot fixtures cover scroll bounds, follow versus hold behaviour, relevant versus
@@ -327,5 +328,17 @@ and restore helpers without injecting a draft into a user's journal.
 Compiled and flashed the application-only image with verified hashes. Boot
 passed all existing checks plus scroll-model and timeline-anchor fixtures;
 automatic encrypted/bonded reconnection succeeded. Free heap at Ready was
-191,320 bytes before opening a chat buffer. Physical stylus drag feel awaits
-user testing. No test RF message was sent and message journals were preserved.
+191,320 bytes before opening a chat buffer. The user confirmed scrolling felt
+good, but reported flashing. UART diagnosis then showed the full-size buffer
+had failed to allocate and the screen was using direct drawing. No test RF message was sent and message journals were preserved.
+
+### 0.12.1 flicker correction
+
+The full-size drawing buffer in 0.12 required a contiguous 38 KB allocation.
+Live diagnostics showed **low-memory fallback** despite 120 KB total free heap,
+which caused a visible background clear on each frame. The replacement renders
+completed 16-bit strips, normally 16 rows at a time, before updating the LCD.
+This avoids the large contiguous allocation and keeps exact RGB565 colours.
+Allocation can shrink to a one-row strip using 594 bytes. A RAM reference-image
+fixture compares pixels between complete and strip-rendered images, including
+text crossing strip and viewport boundaries. It performs no display or RF writes.

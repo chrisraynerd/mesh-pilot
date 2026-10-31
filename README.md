@@ -2,7 +2,7 @@
 
 An independent, open-source, phone-free MeshCore terminal for ESP32 touchscreens.
 
-Current development version: **0.14.0**.
+Current development version: **0.15.0**.
 Start with [the short user guide](QUICK-START.md).
 Public source: https://github.com/chrisraynerd/mesh-pilot
 Licence: MIT; dependency notices are listed in THIRD_PARTY.md.
@@ -454,3 +454,80 @@ results/tests remained in user RAM. User status remained ready=1, no retry,
 no draft, and Heltec battery 4069 mV. These installation checks transmitted no
 RF test messages. Positive over-the-air discovery, repeat and recipient-ACK
 results still depend on coverage and remain unverified by these checks.
+
+## Guided antenna comparison (0.15)
+
+Open **Net > Coverage > Antennas > New**. Name the place and the two antennas,
+then select one repeater by its full public key from known repeaters or the
+current nearby-discovery results. Creating the comparison transmits nothing.
+The tool retains the latest four comparisons per Heltec, independently of the
+coverage notebook and message journal.
+
+The sequence is **A first > B > A again**. Open **Run stage**, fit the named
+antenna, and press **Run this stage**. Power the Heltec off before swapping
+antennas; reconnect before starting the next stage. Keep the same location,
+height, orientation, cable arrangement and radio settings. The tool records the
+reported frequency/bandwidth/SF/coding-rate profile and TX power; it blocks
+starting another stage if those handshake-reported settings have changed.
+It does not change any radio settings. External configuration changes while
+connected are not continuously polled; reconnect after such changes.
+
+Each stage makes at most three completed, locally accepted discovery attempts,
+using the existing 30-second response window and at least 60 seconds between
+requests. A full stage normally takes 2 minutes 30 seconds, plus any existing
+cooldown or local-command wait. Pressing Run authorizes this finite batch only;
+advancing to a different antenna always needs another tap. Other network probes
+are blocked during the batch, while message reception continues. Stop or Back
+from the stage screen stops future requests. An already transmitted request
+cannot be recalled; its remaining discovery window may still need to close.
+Bluetooth loss/restart pauses the batch and never resumes RF automatically.
+Rejected commands, uncertain writes, cancellations and interrupted windows are
+retained as excluded samples, with up to eight total attempts per stage.
+
+Only the first matching fresh reply from the selected full public key counts
+for a given request; other repeaters and duplicate replies cannot inflate its
+success count. No multi-hop route is substituted. Completed accepted requests
+without a matching response count as no reply, not proof of transmission failure.
+The Samples screen retains individual outcomes and measurements. SNR reported
+by the repeater measures the request; reply SNR and RSSI are measured at Heltec.
+
+Results show reply fractions and median request SNR, reply SNR and reply RSSI
+separately for A first, B and A again. A conclusion needs three eligible attempts
+per phase and at least two target replies in each phase. The conservative
+small-trial rule flags changed conditions if the two A phases have different
+reply counts, median SNR differs by over 2 dB in either direction, or median
+RSSI differs by over 3 dB. When those checks pass, a stronger-SNR description
+requires at least a 2 dB change in both directions against the mean of the two
+A medians, consistent RSSI direction and no worse reply count. Otherwise it
+reports mixed readings or no clear signal advantage. These are transparent
+heuristics, not calibrated gain, statistical significance or an antenna quality
+percentage. The tool cannot measure SWR, impedance, reflected power or tuning.
+
+Records are stored in a checksummed, versioned, atomically replaced `.antenna`
+file per radio, excluded from Git. In-progress samples load as interrupted;
+completed samples remain available after power-off antenna swaps. Storage
+failure stops automatic testing; a sample is saved before requesting RF.
+Boot fixtures cover codecs, signed values, wrong-target/duplicate rejection,
+recovery, medians and all comparison outcomes. USB **ANTTEST** uses a reserved
+namespace to check maximum-size persistence, replacement, recovery and damaged
+file rejection without RF or user records. **ANT?** prints counts and run/storage
+flags only. Synthetic fixtures do not supply real-world antenna conclusions.
+
+### 0.15 hardware verification
+
+The final application-only image was flashed with a verified hash on the
+confirmed CYD. Image size: 869,136 bytes; linked flash: 862,561 bytes; static
+RAM: 44,140 bytes; boot free heap: 188,880 bytes. SHA-256:
+`56c5fc789a6ee3974e6492f13e7e8debd936e489ff52918f5a8fd4c2a9da6cd1`.
+All boot fixtures passed, including both stronger-reading directions, mixed and
+similar readings, changed-condition and insufficient/incomplete outcomes.
+The isolated antenna storage test passed maximum-size persistence, replacement,
+interrupted-record recovery, checksum and truncation rejection. Synthetic records
+were removed. Encrypted automatic reconnection succeeded, radio contacts loaded,
+and the existing coverage record remained present. No antenna-test RF request
+was sent by these installation checks. Real antenna comparisons require a
+repeatably reachable target and unchanged physical conditions.
+
+A Bluetooth reconnection on the same radio returns to the saved antenna stage
+or results view where possible, with testing paused. A full CYD restart requires
+opening the saved comparison again. Neither path resumes transmissions by itself.

@@ -95,7 +95,7 @@ void inspectSend(uint32_t timestamp){
 }
 field::Test* findCoverage(uint32_t id){for(auto& t:coverageTests)if(t.id==id)return &t;return nullptr;}
 void drawCoverage(){
-  screen=Screen::COVERAGE;header("Coverage book");smallButton(230,4,78,26,"New test");
+  screen=Screen::COVERAGE;header("Coverage book");smallButton(144,4,80,26,"Antennas");smallButton(230,4,78,26,"New test");
   coveragePage=constrain(coveragePage,0,max(0,int((coverageTests.size()+3)/4)-1));
   for(int row=0;row<4;row++){int i=int(coverageTests.size())-1-(coveragePage*4+row);if(i<0)break;auto& t=coverageTests[i];int y=42+row*32;
     lcd.fillRoundRect(12,y,296,28,4,PANEL);lcd.setTextColor(ACCENT,PANEL);lcd.drawString(String(t.place),19,y+4,1);
@@ -132,10 +132,10 @@ void drawCoverageSignal(){
 }
 void refreshFieldDetails(){if(screen==Screen::MESSAGE_DETAIL)drawMessageDetail();else if(screen==Screen::SENT_RESULTS)drawSentResults();}
 void refreshCoverage(){if(screen==Screen::COVERAGE)drawCoverage();else if(screen==Screen::COVERAGE_TEST)drawCoverageTest();}
-bool queueNearbyScan(bool capture){
+bool queueNearbyScan(bool capture,bool antennaOwner){
   String reason;
   if(!ready||!linkActive)reason="Connect the Heltec first.";
-  else if(networkBusy()||coverageCapture)reason="A network check is running; please wait.";
+  else if(networkBusy(antennaOwner)||coverageCapture)reason="A network check is running; please wait.";
   else if(haveDiscoveryAttempt&&millis()-lastDiscoveryAt<discovery::COOLDOWN_MS)reason="Please wait "+String((discovery::COOLDOWN_MS-(millis()-lastDiscoveryAt)+999)/1000)+"s before retrying.";
   else if(firmwareCode<8)reason="Discovery needs companion protocol v8+.";
   if(capture){coveragePlace.trim();if(!coveragePlace.length())reason="Name this place before starting the test.";}
@@ -149,15 +149,15 @@ bool queueNearbyScan(bool capture){
   }
   networkAction=NetworkAction::DISCOVER;discoveryInfo="Preparing one radio request...";return true;
 }
-void coverageDispatched(){if(fixtureMode)return;fieldScanState=1;fieldScanAt=millis();if(!coverageCapture)return;auto* t=findCoverage(coverageActiveId);if(t){t->started=nowSeconds();t->state=field::TestState::LISTENING;coverageDirty=true;}refreshCoverage();}
-void coverageAccepted(){if(fixtureMode||!coverageCapture)return;auto* t=findCoverage(coverageActiveId);if(t){t->accepted=true;coverageDirty=true;}}
+void coverageDispatched(){if(fixtureMode)return;antennaDispatched();fieldScanState=1;fieldScanAt=millis();if(!coverageCapture)return;auto* t=findCoverage(coverageActiveId);if(t){t->started=nowSeconds();t->state=field::TestState::LISTENING;coverageDirty=true;}refreshCoverage();}
+void coverageAccepted(){if(fixtureMode)return;antennaAccepted();if(!coverageCapture)return;auto* t=findCoverage(coverageActiveId);if(t){t->accepted=true;coverageDirty=true;}}
 void coverageReply(const discovery::Result& result){
-  if(fixtureMode)return;noteFieldProof(1,fieldKeyName(result.key));
+  if(fixtureMode)return;antennaReply(result);noteFieldProof(1,fieldKeyName(result.key));
   if(!coverageCapture)return;auto* t=findCoverage(coverageActiveId);if(!t)return;
   field::Signal s;memcpy(s.key,result.key,32);s.outbound=result.outboundSnrQ;s.inbound=result.inboundSnrQ;s.rssi=result.rssi;field::addReply(*t,s);coverageDirty=true;refreshCoverage();
 }
 void coverageFinished(field::TestState state){
-  if(fixtureMode)return;
+  if(fixtureMode)return;antennaFinished(state);
   if(fieldScanState==1)fieldScanState=state==field::TestState::COMPLETE?2:state==field::TestState::REJECTED?3:state==field::TestState::WRITE_FAILED?4:5;
   if(!coverageCapture)return;auto* t=findCoverage(coverageActiveId);if(t){t->state=state;t->finished=nowSeconds();t->full=nearby.full;saveCoverage();}
   coverageCapture=false;coverageActiveId=0;refreshCoverage();
@@ -182,6 +182,7 @@ bool fieldTouch(int x,int y){
   }
   if(screen==Screen::MESSAGE_DETAIL){if(y>=177&&y<=205){if(x>=12&&x<=104)returnFromDetail();else if(x>=110&&x<=220)drawSentResults();}return true;}
   if(screen==Screen::COVERAGE){
+    if(y>=4&&y<=30&&x>=144&&x<=224){drawAntennaList();return true;}
     if(y>=4&&y<=30&&x>=230&&x<=308){coverageInfo="";drawCoverageNew();}
     else if(y>=42&&y<170&&x>=12&&x<=308&&(y-42)%32<28){int i=int(coverageTests.size())-1-(coveragePage*4+(y-42)/32);if(i>=0){coverageSelectedId=coverageTests[i].id;coverageReplyPage=0;drawCoverageTest();}}
     else if(y>=177&&y<=205){if(x>=12&&x<=80){coveragePage--;drawCoverage();}else if(x>=84&&x<=152){coveragePage++;drawCoverage();}else if(x>=216&&x<=308)drawNetwork();}return true;

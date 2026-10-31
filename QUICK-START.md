@@ -60,3 +60,14 @@ seconds. The notebook keeps your latest 12 tests, including inconclusive tests
 with no replies. Tap a test and then a repeater to inspect both signal readings.
 **Again** prepares a new test at the same place. Tests send only when started
 and respect the one-minute retry pause. An interrupted test is marked incomplete.
+
+For antenna comparisons, open **Net > Coverage > Antennas > New**. Set a place,
+names for A and B, and one target repeater. Create the comparison, then choose
+**Run stage > Run this stage** with antenna A fitted. Each stage sends three
+requests at least a minute apart; allow about 2 minutes 30 seconds.
+
+Use **Next stage** to prepare B, then A again. Always power the Heltec OFF before
+swapping antennas, reconnect, and keep its position, height and orientation the
+same. Results and Samples keep the measurements. An inconclusive result means
+there is not enough consistent evidence; this is not an SWR or antenna-gain meter.
+Stop or Back stops further automatic tests. A restart never resumes a batch.

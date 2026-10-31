@@ -20,6 +20,7 @@
 #include "scroll_tools.h"
 #include "discovery_tools.h"
 #include "field_tools.h"
+#include "antenna_tools.h"
 
 TFT_eSPI lcd;
 SPIClass touchBus(HSPI);
@@ -31,7 +32,7 @@ const char* SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
 float ax, bx, cx, ay, by, cy;
 bool calibrated = false;
 bool pressed = false;
-enum class Screen { HOME, RADIOS, PIN, LINK, CHANNELS, CHAT, COMPOSE, INBOX, NETWORK, NODES, NODE, CLOCK, DIRECT_PICK, DIRECT_CHAT, CHANNEL_SLOTS, CHANNEL_EDIT, CONTACT_EDIT, TEXT_EDIT, CONFIRM, SETTINGS, DISCOVERY, NEARBY, NEARBY_DETAIL, ADVERT, RADIO_STATS, SENT_RESULTS, MESSAGE_DETAIL, COVERAGE, COVERAGE_NEW, COVERAGE_TEST, COVERAGE_SIGNAL };
+enum class Screen { HOME, RADIOS, PIN, LINK, CHANNELS, CHAT, COMPOSE, INBOX, NETWORK, NODES, NODE, CLOCK, DIRECT_PICK, DIRECT_CHAT, CHANNEL_SLOTS, CHANNEL_EDIT, CONTACT_EDIT, TEXT_EDIT, CONFIRM, SETTINGS, DISCOVERY, NEARBY, NEARBY_DETAIL, ADVERT, RADIO_STATS, SENT_RESULTS, MESSAGE_DETAIL, COVERAGE, COVERAGE_NEW, COVERAGE_TEST, COVERAGE_SIGNAL, ANTENNA_LIST, ANTENNA_SETUP, ANTENNA_PICK, ANTENNA_SESSION, ANTENNA_RUN, ANTENNA_RESULTS, ANTENNA_SAMPLES, ANTENNA_HELP };
 Screen screen = Screen::HOME;
 std::vector<NimBLEAdvertisedDevice> radios;
 int selected = -1;
@@ -151,6 +152,28 @@ int textPurpose=0;
 size_t textLimit=31;
 bool contactsLoaded=false;
 bool fixtureMode=false;
+std::vector<antenna::Session> antennaSessions;
+antenna::Session antennaDraft;
+uint32_t antennaSelectedId=0,antennaRunningId=0,antennaSaveAt=0,antennaPaintAt=0;
+int antennaPage=0,antennaPickPage=0,antennaSample=-1,antennaSamplePhase=0,antennaSamplePage=0;
+bool antennaBatch=false,antennaSampleActive=false,antennaDirty=false,antennaFailed=false;
+int8_t radioTxPower=0;
+String antennaInfo,antennaDataRadio;
+void drawAntennaList();
+void drawAntennaSetup();
+void drawAntennaSession();
+void drawAntennaResults();
+void tickAntenna();
+bool antennaTouch(int x,int y);
+void loadAntenna();
+void saveAntenna();
+void antennaDispatched();
+void antennaAccepted();
+void antennaReply(const discovery::Result& result);
+void antennaFinished(field::TestState state);
+void antennaStop(bool cancelled);
+bool antennaStorageSelfTest();
+
 std::vector<field::SendResult> sendResults;
 std::vector<field::Test> coverageTests;
 bool sendResultsDirty=false,sendResultsFailed=false,coverageDirty=false,coverageFailed=false;
@@ -179,7 +202,7 @@ void inspectMessage(uint64_t id);
 bool fieldTouch(int x,int y);
 bool fieldStorageSelfTest();
 void noteFieldProof(uint8_t kind,const String& name);
-bool queueNearbyScan(bool capture);
+bool queueNearbyScan(bool capture,bool antennaOwner=false);
 void coverageDispatched();
 void coverageAccepted();
 void coverageReply(const discovery::Result& r);
@@ -277,7 +300,7 @@ void button(int x, int y, int w, const char* label) {
 }
 void home() {
   screen=Screen::HOME;
-  header("Mesh Pilot / 0.14.0");
+  header("Mesh Pilot / 0.15.0");
   lcd.drawString("Screen + touch ready",12,48,2);
   lcd.drawString("Heltec stays on MeshCore firmware.",12,72,2);
   lcd.drawString("Turn on your Heltec, then scan.",12,96,2);
@@ -431,6 +454,7 @@ void connectRadio(bool automatic) {
   pinText="";
   linkScreen("Connecting...","Please wait for the radio.");
   xQueueReset(replies);
+  antennaBatch=false;antennaSampleActive=false;antennaRunningId=0;
   ready=false;pending=Pending::NONE;haveBattery=false;batteryWanted=true;
   memset(channelKeys,0,sizeof(channelKeys));memset(haveChannelKey,0,sizeof(haveChannelKey));haveSelfKey=false;wireName="";
   for(auto& s:sends)s.active=false;pendingSend=-1;latestSend=-1;
@@ -495,8 +519,10 @@ void tickClock() {
         if(end&&!*end&&value>=1577836800u&&value<=4102444799u)setClock(value,"USB synchronised");
       } else if(strcmp(command,"LINKTEST")==0&&ready){Serial.println("Diagnostic local BLE disconnect; no RF send");client->disconnect();}
       else if(strcmp(command,"STATUS?")==0)Serial.printf("Terminal status: ready=%d; battery=%u mV; contacts=%u; unread=%d; retry=%d; draft=%u; dimmed=%d\n",ready,batteryMv,unsigned(contacts.size()),allUnread(),reconnectScheduled,unsigned(draft.length()),displayDimmed);
-      else if(strcmp(command,"STORAGETEST")==0&&pending!=Pending::SEND&&pending!=Pending::MANAGE&&pending!=Pending::VERIFY_CHANNEL)Serial.printf("Isolated read-state and draft storage fixtures: %s\n",terminalStorageSelfTest()?"passed":"FAILED");
-      else if(strcmp(command,"FIELDTEST")==0&&pending!=Pending::SEND&&pending!=Pending::MANAGE&&pending!=Pending::VERIFY_CHANNEL&&!coverageCapture)Serial.printf("Isolated delivery and coverage storage fixtures: %s\n",fieldStorageSelfTest()?"passed":"FAILED");
+      else if(strcmp(command,"STORAGETEST")==0&&pending!=Pending::SEND&&pending!=Pending::MANAGE&&pending!=Pending::VERIFY_CHANNEL&&!antennaBatch&&!antennaSampleActive)Serial.printf("Isolated read-state and draft storage fixtures: %s\n",terminalStorageSelfTest()?"passed":"FAILED");
+      else if(strcmp(command,"FIELDTEST")==0&&pending!=Pending::SEND&&pending!=Pending::MANAGE&&pending!=Pending::VERIFY_CHANNEL&&!coverageCapture&&!antennaBatch&&!antennaSampleActive)Serial.printf("Isolated delivery and coverage storage fixtures: %s\n",fieldStorageSelfTest()?"passed":"FAILED");
+      else if(strcmp(command,"ANTTEST")==0&&pending!=Pending::SEND&&pending!=Pending::MANAGE&&pending!=Pending::VERIFY_CHANNEL&&!antennaBatch&&!antennaSampleActive)Serial.printf("Isolated antenna storage fixtures: %s\n",antennaStorageSelfTest()?"passed":"FAILED");
+      else if(strcmp(command,"ANT?")==0)Serial.printf("Antenna status: sessions=%u; batch=%d; sample=%d; storeFailed=%d\n",unsigned(antennaSessions.size()),antennaBatch,antennaSampleActive,antennaFailed);
       else if(strcmp(command,"FIELD?")==0)Serial.printf("Field status: results=%u; tests=%u; capture=%d; resultStoreFailed=%d; coverageStoreFailed=%d; proof=%d\n",unsigned(sendResults.size()),unsigned(coverageTests.size()),coverageCapture,sendResultsFailed,coverageFailed,haveFieldProof);
       else if(strcmp(command,"CLOCK?")==0)Serial.printf("Clock now: %s (%s)\n",clockText().c_str(),clockSource.c_str());
       used=0;
@@ -512,6 +538,7 @@ void tickClock() {
   }
 }
 #include "field_store.h"
+#include "antenna_store.h"
 
 String packetText(const uint8_t* p,size_t n) {
   return String(text_render::ascii(p,n).c_str());
@@ -546,7 +573,7 @@ bool savePacket(const uint8_t* p,size_t n) {
 void loadHistory() {
   messages.clear();incomingSequence=0;storageBlocked=false;
   String id=activeAddress;id.replace(":","");
-  journalPath="/"+id+".log";loadReadState();loadFieldData();
+  journalPath="/"+id+".log";loadReadState();loadFieldData();loadAntenna();
   if(!storageReady) { storageBlocked=true;return; }
   File f=LittleFS.open(journalPath,"r");
   if(!f)return;
@@ -834,8 +861,8 @@ void upsertContact(const Reply& r,bool live) {
   c.seen=live;c.seenAt=live?millis():0;
   if(contacts.size()<256)contacts.push_back(c);else contactsTruncated=true;
 }
-bool networkBusy() {
-  if(networkAction!=NetworkAction::NONE||pending==Pending::CONTACTS||pending==Pending::STATS||pending==Pending::PROBE||pending==Pending::DISCOVER||pending==Pending::ADVERT||remoteWaiting||nearby.active) {
+bool networkBusy(bool antennaOwner=false) {
+  if(networkAction!=NetworkAction::NONE||pending==Pending::CONTACTS||pending==Pending::STATS||pending==Pending::PROBE||pending==Pending::DISCOVER||pending==Pending::ADVERT||remoteWaiting||nearby.active||antennaSampleActive||(antennaBatch&&!antennaOwner)) {
     networkInfo="A network check is already running";return true;
   }
   return false;
@@ -941,6 +968,7 @@ bool handleNetworkReply(const Reply& r) {
   return false;
 }
 #include "field_ui.h"
+#include "antenna_ui.h"
 #include "discovery_ui.h"
 #include "management_ui.h"
 #include "terminal_ui.h"
@@ -986,6 +1014,7 @@ void processReplies() {
       continue;
     }
     if(job==Pending::SELF&&r.code==5) {
+      if(r.length>=3)radioTxPower=int8_t(r.data[2]);
       if(r.length>=36){memcpy(selfPublicKey,r.data+4,32);haveSelfKey=true;}
       wireName="";if(r.length>58)wireName.concat(reinterpret_cast<const char*>(r.data+58),r.length-58);
       if(r.length>=58)radioProfile=String(protocol::read32(r.data+48)/1000.0f,3)+" MHz / "+String(protocol::read32(r.data+52)/1000.0f,2)+" kHz / SF"+String(r.data[56])+" CR4/"+String(r.data[57]);
@@ -1047,7 +1076,7 @@ void processReplies() {
 }
 void setup() {
   Serial.begin(115200);delay(300);
-  Serial.println("Mesh Pilot 0.14.0 / E32R28T");
+  Serial.println("Mesh Pilot 0.15.0 / E32R28T");
   pinMode(21,OUTPUT);digitalWrite(21,HIGH);
   lcd.init();lcd.setRotation(1);
   touchBus.begin(25,39,32,33);touch.begin(touchBus);touch.setRotation(1);
@@ -1056,10 +1085,10 @@ void setup() {
   ledcSetup(7,5000,8);ledcAttachPin(21,7);ledcWrite(7,brightness);lastTouchAt=millis();
   clockBase=max(uint32_t(BUILD_UNIX_TIME),uint32_t(prefs.getULong("timeLast",0)));clockAt=millis();
   fixtureMode=true;
-  bool checksPassed=protocol::selfTest()&&diagnostics::selfTest()&&text_render::selfTest()&&clock_tools::selfTest()&&send_tracking::selfTest()&&management::selfTest()&&managementUiSelfTest()&&terminal_tools::selfTest()&&terminalSelfTest()&&draft_tools::selfTest()&&scroll_tools::selfTest()&&scrollUiSelfTest()&&scrollBandSelfTest()&&discovery::selfTest()&&discoveryUiSelfTest()&&field::selfTest();
+  bool checksPassed=protocol::selfTest()&&diagnostics::selfTest()&&text_render::selfTest()&&clock_tools::selfTest()&&send_tracking::selfTest()&&management::selfTest()&&managementUiSelfTest()&&terminal_tools::selfTest()&&terminalSelfTest()&&draft_tools::selfTest()&&scroll_tools::selfTest()&&scrollUiSelfTest()&&scrollBandSelfTest()&&discovery::selfTest()&&discoveryUiSelfTest()&&field::selfTest()&&antenna::selfTest();
   fixtureMode=false;
   if(!checksPassed){Serial.println("Boot fixtures FAILED");header("Protocol/text/send check failed");while(true)delay(1000);}
-  Serial.println("Message, network, Unicode, clock, delivery, management, terminal, scrolling, nearby discovery and field fixtures passed");
+  Serial.println("Message, network, Unicode, clock, delivery, management, terminal, scrolling, nearby discovery, field and antenna fixtures passed");
   storageReady=LittleFS.begin(false);
   if(!storageReady&&!prefs.getBool("fsinit",false))storageReady=LittleFS.begin(true);
   if(storageReady)prefs.putBool("fsinit",true);
@@ -1098,6 +1127,7 @@ void loop() {
   tickDelivery();
   tickDiscovery();
   tickField();
+  tickAntenna();
   tickNetwork();
   pollMessages();
   bool down=touch.touched();
@@ -1109,6 +1139,7 @@ void loop() {
     int x=lroundf(ax*p.x+bx*p.y+cx),y=lroundf(ay*p.x+by*p.y+cy);
     // Never log keypad coordinates: they would reveal the pairing PIN.
     if(terminalTouch(x,y)) { /* Device settings. */ }
+    else if(antennaTouch(x,y)) { /* Antenna comparison. */ }
     else if(fieldTouch(x,y)) { /* Dashboard, results and coverage. */ }
     else if(discoveryTouch(x,y)) { /* Discover and announce. */ }
     else if(managementTouch(x,y)) { /* Management screens handled above. */ }

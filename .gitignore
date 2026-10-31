@@ -19,3 +19,4 @@ secrets*
 
 *.sent
 *.coverage
+*.antenna

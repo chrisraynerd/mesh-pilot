@@ -64,6 +64,7 @@ String idleStatus() {
   if(draftSaveFailed)result="Draft not saved; check storage";
   if(sendResultsFailed)result="Send results not saved; check storage";
   if(coverageFailed)result="Coverage notes not saved; check storage";
+  if(antennaFailed)result="Antenna notes not saved; check storage";
   return result;
 }
 void scheduleReconnect() {
@@ -80,6 +81,10 @@ void reconnectReady() {
   if(restored||(resumeAfterReconnect&&reconnectReturn==Screen::COMPOSE&&draft.length()&&(composingDirect||(currentChannel<maxChannels&&channels[currentChannel].length()))))drawCompose();
   else if(resumeAfterReconnect&&reconnectReturn==Screen::DIRECT_CHAT)drawDirectChat();
   else if(resumeAfterReconnect&&reconnectReturn==Screen::CHAT&&currentChannel<maxChannels&&channels[currentChannel].length())drawChat();
+  else if(resumeAfterReconnect&&(reconnectReturn==Screen::ANTENNA_SESSION||reconnectReturn==Screen::ANTENNA_RUN||reconnectReturn==Screen::ANTENNA_RESULTS||reconnectReturn==Screen::ANTENNA_SAMPLES)&&selectedAntenna(antennaSelectedId)){
+    antennaInfo="Paused; tap Run to continue when ready.";
+    if(reconnectReturn==Screen::ANTENNA_RUN)drawAntennaRun();else if(reconnectReturn==Screen::ANTENNA_RESULTS)drawAntennaResults();else drawAntennaSession();
+  }
   else drawChannels();
   resumeAfterReconnect=false;Serial.println("Terminal ready; radio session restored; no automatic resend");
 }

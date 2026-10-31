@@ -542,3 +542,10 @@ does not re-enable it. Existing scroll filtering, release debounce and buffered
 rendering remain unchanged. Boot fixtures cover short touches, stationary holds,
 scroll cancellation, horizontal motion, gaps and clock wrap. Net > Sent remains
 available for reviewing send results without a hold.
+
+The 0.15.1 app-only image (869,584 bytes) was subsequently installed on the
+confirmed CYD after USB connectivity was restored. Written data verified, all
+on-device boot fixtures passed, and encrypted bonded reconnection succeeded.
+Saved send results, coverage tests and the antenna comparison restored without
+storage errors. The host gesture fixtures also passed in GitHub Actions.
+Physical scrolling and deliberate-hold feel await user confirmation.

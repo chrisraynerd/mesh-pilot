@@ -15,6 +15,8 @@
 #include <algorithm>
 #include "management_tools.h"
 #include "terminal_tools.h"
+#include "draft_tools.h"
+#include "build_stamp.h"
 
 TFT_eSPI lcd;
 SPIClass touchBus(HSPI);
@@ -50,6 +52,13 @@ struct ReadPeer { uint8_t key[6]; uint32_t sequence; };
 std::vector<ReadPeer> readPeers;
 uint32_t channelRead[40]={},incomingSequence=0,readDirtyAt=0;
 bool readDirty=false,readSaveFailed=false;
+uint32_t draftSavedHash=0,draftObservedHash=0,draftChangedAt=0;
+bool draftDirty=false,draftSaveFailed=false;
+void saveDraftNow();
+void clearSavedDraft();
+bool restoreDraft();
+void tickDraft();
+bool terminalStorageSelfTest();
 void tickTerminal();
 void drawSettings();
 bool terminalTouch(int x,int y);
@@ -208,7 +217,7 @@ void button(int x, int y, int w, const char* label) {
 }
 void home() {
   screen=Screen::HOME;
-  header("Mesh Pilot / 0.10");
+  header("Mesh Pilot / 0.11");
   lcd.drawString("Screen + touch ready",12,48,2);
   lcd.drawString("Heltec stays on MeshCore firmware.",12,72,2);
   lcd.drawString("Turn on your Heltec, then scan.",12,96,2);
@@ -246,6 +255,7 @@ void calibration() {
   Serial.println("Touch calibration saved");home();
 }
 void scan() {
+  saveReadState();saveDraftNow();
   cancelReconnect();
   waitingFor=0;pending=Pending::NONE;ready=false; linkActive=false; commandChar=nullptr;
   if(client && client->isConnected()) client->disconnect();
@@ -319,7 +329,7 @@ void linkScreen(const char* title, const char* detail) {
 }
 void failLink(const char* detail,bool retry=true) {
   if(ready){resumeAfterReconnect=true;reconnectReturn=screen;}
-  saveReadState();
+  saveReadState();saveDraftNow();
   bool unconfirmed=false;for(auto& s:sends){if(s.active&&!s.done)unconfirmed=true;s.active=false;}
   if(unconfirmed)deliveryFeedback("Radio disconnected; delivery unconfirmed",TFT_ORANGE);
   waitingFor=0;pending=Pending::NONE;ready=false;linkActive=false;commandChar=nullptr;
@@ -349,6 +359,8 @@ void connectRadio(bool automatic) {
     }
   } else {
     if(selected<0||selected>=int(radios.size()))return;
+    String chosen=radios[selected].getAddress().toString().c_str();
+    if(activeAddress.length()&&activeAddress!=chosen){saveDraftNow();draft="";draftSavedHash=draftObservedHash=0;draftDirty=false;}
     activeAddress=radios[selected].getAddress().toString().c_str();activeAddressType=radios[selected].getAddress().getType();activeName=radios[selected].getName().c_str();
   }
   allowNewPairing.store(!automatic);
@@ -419,7 +431,8 @@ void tickClock() {
         char* end=nullptr;unsigned long value=strtoul(command+5,&end,10);
         if(end&&!*end&&value>=1577836800u&&value<=4102444799u)setClock(value,"USB synchronised");
       } else if(strcmp(command,"LINKTEST")==0&&ready){Serial.println("Diagnostic local BLE disconnect; no RF send");client->disconnect();}
-      else if(strcmp(command,"STATUS?")==0)Serial.printf("Terminal status: ready=%d; battery=%u mV; contacts=%u; unread=%d; retry=%d\n",ready,batteryMv,unsigned(contacts.size()),allUnread(),reconnectScheduled);
+      else if(strcmp(command,"STATUS?")==0)Serial.printf("Terminal status: ready=%d; battery=%u mV; contacts=%u; unread=%d; retry=%d; draft=%u; dimmed=%d\n",ready,batteryMv,unsigned(contacts.size()),allUnread(),reconnectScheduled,unsigned(draft.length()),displayDimmed);
+      else if(strcmp(command,"STORAGETEST")==0&&pending!=Pending::SEND&&pending!=Pending::MANAGE&&pending!=Pending::VERIFY_CHANNEL)Serial.printf("Isolated read-state and draft storage fixtures: %s\n",terminalStorageSelfTest()?"passed":"FAILED");
       else if(strcmp(command,"CLOCK?")==0)Serial.printf("Clock now: %s (%s)\n",clockText().c_str(),clockSource.c_str());
       used=0;
     } else if(c!='\r') {if(used<sizeof(command)-1)command[used++]=c;else used=0;}
@@ -888,6 +901,7 @@ bool handleNetworkReply(const Reply& r) {
 }
 #include "management_ui.h"
 #include "terminal_ui.h"
+#include "draft_ui.h"
 
 void processReplies() {
   if(replyOverflow.exchange(false)) {
@@ -970,7 +984,7 @@ void processReplies() {
           else {s.done=true;deliveryFeedback("Radio accepted; repeat check unavailable",TFT_ORANGE);}
         }
       }
-      recordOutgoing(true);draft="";historyPage=0;if(composingDirect)drawDirectChat();else drawChat();
+      recordOutgoing(true);draft="";clearSavedDraft();historyPage=0;if(composingDirect)drawDirectChat();else drawChat();
     }
     else if(job==Pending::SET_CLOCK&&r.code==0){pending=Pending::NONE;Serial.println("Heltec accepted clock synchronisation");}
   }
@@ -986,7 +1000,7 @@ void processReplies() {
 }
 void setup() {
   Serial.begin(115200);delay(300);
-  Serial.println("Mesh Pilot 0.10 / E32R28T");
+  Serial.println("Mesh Pilot 0.11 / E32R28T");
   pinMode(21,OUTPUT);digitalWrite(21,HIGH);
   lcd.init();lcd.setRotation(1);
   touchBus.begin(25,39,32,33);touch.begin(touchBus);touch.setRotation(1);
@@ -994,13 +1008,13 @@ void setup() {
   brightness=prefs.getUChar("light",255);brightness=max(uint8_t(40),brightness);autoDim=prefs.getBool("dim",true);
   ledcSetup(7,5000,8);ledcAttachPin(21,7);ledcWrite(7,brightness);lastTouchAt=millis();
   clockBase=max(uint32_t(BUILD_UNIX_TIME),uint32_t(prefs.getULong("timeLast",0)));clockAt=millis();
-  if(!protocol::selfTest()||!diagnostics::selfTest()||!text_render::selfTest()||!clock_tools::selfTest()||!send_tracking::selfTest()||!management::selfTest()||!managementUiSelfTest()||!terminal_tools::selfTest()||!terminalSelfTest()) { header("Protocol/text/send check failed");while(true)delay(1000); }
+  if(!protocol::selfTest()||!diagnostics::selfTest()||!text_render::selfTest()||!clock_tools::selfTest()||!send_tracking::selfTest()||!management::selfTest()||!managementUiSelfTest()||!terminal_tools::selfTest()||!terminalSelfTest()||!draft_tools::selfTest()) { header("Protocol/text/send check failed");while(true)delay(1000); }
   Serial.println("Message, network, Unicode, clock, delivery, management and terminal fixtures passed");
   storageReady=LittleFS.begin(false);
   if(!storageReady&&!prefs.getBool("fsinit",false))storageReady=LittleFS.begin(true);
   if(storageReady)prefs.putBool("fsinit",true);
   Serial.printf("History storage: %s\n",storageReady?"ready":"unavailable");
-  NimBLEDevice::init("CYD Mesh Terminal");
+  NimBLEDevice::init("Mesh Pilot");
   NimBLEDevice::setMTU(247);
   replies=xQueueCreate(64,sizeof(Reply));
   client=NimBLEDevice::createClient();
@@ -1037,7 +1051,7 @@ void loop() {
   bool down=touch.touched();
   if(down && !pressed) {
     bool waking=displayDimmed;lastTouchAt=millis();displayDimmed=false;ledcWrite(7,brightness);
-    if(waking){pressed=down;delay(20);return;}
+    if(waking){refreshMessageScreen();pressed=down;delay(20);return;}
     TS_Point p=touch.getPoint();
     int x=lroundf(ax*p.x+bx*p.y+cx),y=lroundf(ay*p.x+by*p.y+cy);
     // Never log keypad coordinates: they would reveal the pairing PIN.
@@ -1090,7 +1104,7 @@ void loop() {
       if(x>=164&&x<=224&&y>=4&&y<=30){clockDigits="";drawClock();}
       else if(x>=230&&x<=308&&y>=4&&y<=30){autoConnectEnabled=!autoConnectEnabled;prefs.putBool("autolink",autoConnectEnabled);if(!autoConnectEnabled)cancelReconnect();else reconnectSuppressed=false;drawNetwork();}
       else if(x>=12&&x<=80&&y>=147&&y<=172){
-        if(pending==Pending::NONE&&!remoteWaiting){cancelReconnect();saveReadState();resumeAfterReconnect=false;pending=Pending::NONE;ready=false;linkActive=false;commandChar=nullptr;networkAction=NetworkAction::NONE;client->disconnect();drawRadios();}
+        if(pending==Pending::NONE&&!remoteWaiting){cancelReconnect();saveReadState();saveDraftNow();resumeAfterReconnect=false;pending=Pending::NONE;ready=false;linkActive=false;commandChar=nullptr;networkAction=NetworkAction::NONE;client->disconnect();drawRadios();}
       }
       else if(y>=177&&y<=205) {
         if(x>=12&&x<=104)requestStats();

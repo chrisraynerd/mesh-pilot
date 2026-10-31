@@ -19,7 +19,7 @@ int allUnread() {
   int count=directUnread();for(int i=0;i<40;i++)count+=channelUnread(i);return count;
 }
 void noteRead(const ChatMessage& message) {
-  if(message.outgoing||!message.sequence)return;
+  if(message.outgoing||!message.sequence||displayDimmed)return;
   bool changed=false;
   if(!message.direct&&message.channel<40) {
     if(channelRead[message.channel]<message.sequence){channelRead[message.channel]=message.sequence;changed=true;}
@@ -61,6 +61,7 @@ String idleStatus() {
   if(haveBattery&&batteryMv)result+=" | "+String(batteryMv/1000.0f,2)+"V";
   int unread=allUnread();if(unread)result+=" | "+String(unread)+" unread";
   if(readSaveFailed)result="Read markers not saved; check storage";
+  if(draftSaveFailed)result="Draft not saved; check storage";
   return result;
 }
 void scheduleReconnect() {
@@ -73,7 +74,8 @@ void scheduleReconnect() {
 void cancelReconnect(){reconnectScheduled=false;reconnectSuppressed=true;}
 void reconnectReady() {
   reconnectScheduled=false;reconnectAttempt=0;reconnectSuppressed=false;
-  if(resumeAfterReconnect&&reconnectReturn==Screen::COMPOSE&&draft.length()&&(composingDirect||(currentChannel<maxChannels&&channels[currentChannel].length())))drawCompose();
+  bool restored=restoreDraft();
+  if(restored||(resumeAfterReconnect&&reconnectReturn==Screen::COMPOSE&&draft.length()&&(composingDirect||(currentChannel<maxChannels&&channels[currentChannel].length()))))drawCompose();
   else if(resumeAfterReconnect&&reconnectReturn==Screen::DIRECT_CHAT)drawDirectChat();
   else if(resumeAfterReconnect&&reconnectReturn==Screen::CHAT&&currentChannel<maxChannels&&channels[currentChannel].length())drawChat();
   else drawChannels();
@@ -123,6 +125,7 @@ void tickTerminal() {
     if(terminal_tools::due(millis(),reconnectAt))connectRadio(true);
   }
   if(readDirty&&millis()-readDirtyAt>=3000)saveReadState();
+  tickDraft();
   if(autoDim&&!displayDimmed&&millis()-lastTouchAt>=60000){displayDimmed=true;ledcWrite(7,8);}
   if(ready&&batterySupported&&pending==Pending::NONE&&networkAction==NetworkAction::NONE&&(batteryWanted||millis()-batteryAt>=60000)) {
     uint8_t request=20;batteryWanted=false;if(!sendCommand(&request,1,Pending::BATTERY))batteryWanted=true;
@@ -136,6 +139,7 @@ bool terminalSelfTest() {
   bool ok=allUnread()==4&&channelUnread(2)==1&&peerUnread(alice)==1&&directUnread()==2;
   noteRead(messages[0]);noteRead(messages[2]);ok=ok&&allUnread()==2&&channelUnread(2)==0&&peerUnread(alice)==0&&peerUnread(bob)==1&&channelUnread(3)==1;
   noteRead(messages[4]);ok=ok&&allUnread()==2&&readDirty;
+  displayDimmed=true;noteRead(messages[1]);ok=ok&&channelUnread(3)==1;displayDimmed=false;
   messages.clear();readPeers.clear();memset(channelRead,0,sizeof(channelRead));incomingSequence=0;readDirty=false;readDirtyAt=0;
   return ok;
 }

@@ -2,7 +2,8 @@
 
 An independent, open-source, phone-free MeshCore terminal for ESP32 touchscreens.
 
-Current development version: **0.10**.
+Current development version: **0.11**.
+Start with [the short user guide](QUICK-START.md).
 Public source: https://github.com/chrisraynerd/mesh-pilot
 Licence: MIT; dependency notices are listed in THIRD_PARTY.md.
 
@@ -28,7 +29,9 @@ then **Write**, type and **Send**. **ABC** changes case; **123** selects digits 
 punctuation. Outgoing messages currently allow up to 120 ASCII characters.
 **Inbox** shows direct messages. **Contacts > person > Message > Write** opens
 a direct conversation. Incoming messages do not interrupt a draft or keyboard.
-Drafts survive navigation/disconnect in RAM, but not restart or recipient changes.
+An unsent draft is saved locally after two seconds without editing and restored
+for review after restart. Only one active draft is kept per radio; selecting a
+different recipient clears it. No draft is sent or retried automatically.
 
 Chat uses blue time, orange username and white body in a continuous wrapped
 flow, each message beginning on the next line. Eleven lines fit on a page.
@@ -48,7 +51,8 @@ bytes remain unchanged. Names in channel messages are sender-supplied text.
   touch, dimming lowers the backlight while Bluetooth and reception continue.
   The first tap wakes it and is consumed, preventing an accidental button press.
 - Channel buttons, the direct inbox and contact rows display unread counts.
-  Opening a conversation marks messages read. Markers are stored per radio in
+  Opening a conversation marks messages read; messages remain unread while the
+  display is dimmed and are marked when the conversation is woken. Markers are stored per radio in
   a small checksummed, atomically replaced local file; interrupted/corrupt marker
   files fall back to unread rather than changing message history. Counts cover
   the latest 80 messages kept in RAM. Incoming messages preserve an older page
@@ -61,6 +65,25 @@ bytes remain unchanged. Names in channel messages are sender-supplied text.
 - USB diagnostics: **STATUS?** prints only connection state, battery, contact
   count, unread count and retry status. **LINKTEST** deliberately drops only
   the local Bluetooth connection to verify recovery; it transmits no RF message.
+
+## Draft recovery (0.11)
+
+Unsent text is stored in a checksummed per-radio local draft file, with atomic
+replacement. The original destination public key is kept for a direct draft.
+Channel drafts store only a fingerprint of the channel key and are not restored
+onto a slot with a different key. The local draft file contains message text,
+like the existing journal; it stays on the screen's flash and is not published.
+There is one active draft per radio. A sudden cut during the two-second save
+delay can lose the latest edit. Accepted sends remove the saved draft. If power
+is lost before that removal finishes, review any restored text before sending.
+
+USB **STORAGETEST** uses a reserved synthetic namespace to check read-marker and
+draft replacement, corruption rejection, destination/fingerprint matching and
+the production restore path. It restores the user's RAM state and removes its
+temporary fixture files. It does not send an RF message or modify user journals.
+
+Build time now lives in a generated header under .pio, avoiding a full rebuild
+of every dependency just to refresh the application clock baseline.
 
 ## Contacts, nodes and custom channels (0.9)
 
@@ -190,7 +213,8 @@ Existing huge_app layout: NVS 0x9000, otadata 0xe000, app 0x10000 (3 MiB),
 LittleFS 0x310000 (896 KiB), coredump 0x3f0000. Flash only the CYD, not the Heltec.
 USB identity: ESP32-D0WD-V3 rev 3.1, 4 MB. Verify your own device identity before flashing.
 
-The sibling **device-backup/original-cyd-flash.bin** is the original full 4 MiB
+In the original development workspace, the sibling
+**device-backup/original-cyd-flash.bin** is the original full 4 MiB
 image with SHA-256 recorded alongside. Restoration writes that full backup at
 address 0 and replaces the prototype, calibration, bonds and stored history.
 Keep it separate; ordinary updates must not overwrite it or the data partitions.
@@ -243,3 +267,31 @@ and authenticated automatic reconnection without a PIN or resend. A later status
 query reported ready=1, 121 contacts and Heltec battery **3999 mV**. Five messages
 in the current local history were counted unread. Display interaction, dim/wake
 feel and real-world notification use still need human review.
+
+## Current scope
+
+Mesh Pilot is a usable standalone messaging client, not full phone-app parity.
+Maps/GPS UI, room-server login/conversations, camera-based QR import and advanced
+radio configuration are not implemented. Read/unread counts cover the 80 recent
+messages held in RAM. Over-the-air repeat/recipient-ACK success depends on the
+actual mesh and has not been demonstrated by these local hardware checks.
+Touch ergonomics, contact/channel config writes and live RF use still benefit
+from human testing. The v0.9.0 checkpoint preserves the earlier user-tested UI.
+
+### 0.11 hardware verification
+
+Installed on the confirmed CYD with verified flash hashes. The final app image
+is 795,648 bytes; SHA-256:
+`287505676fb1eb95a8c459655e7d32699bac3b6b9b274d0b49bb963d49fc2c77`.
+Boot passed protocol, Unicode, clock, delivery, management, terminal and draft
+codec fixtures. Free heap at Ready was about 194 KB.
+
+The isolated on-device storage test passed read-marker save/replacement, corrupt
+marker rejection, draft save/replacement, channel fingerprint matching, direct
+draft restoration and corrupt draft rejection. Test files were removed and the
+user's RAM state restored. A diagnostic BLE disconnect then automatically
+recovered a complete session: ready=1, battery 3999 mV, at least 121 known
+contacts, five unread messages and no synthetic draft left behind. No test RF
+message was sent. Screen brightness/dimming and wake-button ergonomics await
+human interaction; draft persistence is verified through the production storage
+and restore helpers without injecting a draft into a user's journal.

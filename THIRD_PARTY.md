@@ -1,6 +1,6 @@
 # Dependencies and protocol references
 
-This terminal's application source is licensed under MIT. Dependencies retain their
+Mesh Pilot's application source is licensed under MIT. Dependencies retain their
 own licences and notices. PlatformIO downloads them; their source is not vendored
 in this repository.
 
@@ -14,5 +14,5 @@ in this repository.
 
 The application implements the MeshCore companion protocol independently.
 Protocol/reference source: https://github.com/meshcore-dev/MeshCore.
-No WADAMESH source is used. This terminal is an independent project and is not an
+No WADAMESH source is used. Mesh Pilot is an independent project and is not an
 official MeshCore product.

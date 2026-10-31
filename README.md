@@ -1,6 +1,10 @@
-# CYD Mesh Terminal - prototype 0.9
+# Mesh Pilot
 
-An independent, open-source, phone-free MeshCore terminal. Project name pending.
+An independent, open-source, phone-free MeshCore terminal for ESP32 touchscreens.
+
+Current development version: **0.10**.
+Public source: https://github.com/chrisraynerd/mesh-pilot
+Licence: MIT; dependency notices are listed in THIRD_PARTY.md.
 
 Independent touchscreen MeshCore messenger for the LCDWiki E32R28T
 (ESP32-WROOM-32E N4, 4 MB flash, ILI9341V and XPT2046 resistive touch).
@@ -14,8 +18,10 @@ disconnected. Choose **Find MeshCore radios**, tap your Heltec, enter its six-di
 Bluetooth PIN and connect. The initial connection retries once if needed.
 Bluetooth bonding remembers the radio and reconnects after a CYD restart without
 storing the PIN. **Net > Auto on/off** changes startup reconnect behaviour.
-Dropped connections currently require manual reconnection; **Saved** retries the
-remembered radio. Missing/stale bonds require scanning and entering the PIN again.
+Dropped links reconnect automatically while Auto link is enabled, using delays of
+5, 10, 20, 40 and then 60 seconds. No PIN is silently guessed and no message is
+automatically resent. **Back**, **Leave**, scanning, or turning Auto link off
+cancels retry; **Saved** retries the remembered radio immediately. Missing/stale bonds require scanning and entering the PIN again.
 
 Channels and contacts load from the Heltec after the handshake. Tap a channel,
 then **Write**, type and **Send**. **ABC** changes case; **123** selects digits and
@@ -31,6 +37,30 @@ Complete messages stay together when possible; very long messages continue.
 known emoji become readable labels such as [cat] and [hand], accents are
 transliterated and unsupported characters receive [U+XXXX] labels. Raw journal
 bytes remain unchanged. Names in channel messages are sender-supplied text.
+
+## Standalone operation (0.10)
+
+- **Setup** on the channel screen shows Heltec battery voltage, radio storage
+  when reported, and this screen's storage usage. Voltage is reported directly;
+  no unreliable battery percentage is invented. Zero/implausible readings are
+  labelled unavailable. This is the Heltec's battery, not a separate CYD battery.
+- Brightness and automatic dimming are saved on the CYD. After a minute without
+  touch, dimming lowers the backlight while Bluetooth and reception continue.
+  The first tap wakes it and is consumed, preventing an accidental button press.
+- Channel buttons, the direct inbox and contact rows display unread counts.
+  Opening a conversation marks messages read. Markers are stored per radio in
+  a small checksummed, atomically replaced local file; interrupted/corrupt marker
+  files fall back to unread rather than changing message history. Counts cover
+  the latest 80 messages kept in RAM. Incoming messages preserve an older page
+  and a compose draft instead of moving the reader to a different page.
+- An unexpected Bluetooth drop preserves the draft in RAM and returns to the
+  conversation/composer after a successful reconnect. Manual Leave cancels
+  retries. Missing/failed pairing stops retries and asks for a PIN through the
+  normal pairing screen. A timeout in an optional battery query disables it for
+  the automatic reconnect cycle, leaving messaging available.
+- USB diagnostics: **STATUS?** prints only connection state, battery, contact
+  count, unread count and retry status. **LINKTEST** deliberately drops only
+  the local Bluetooth connection to verify recovery; it transmits no RF message.
 
 ## Contacts, nodes and custom channels (0.9)
 
@@ -203,3 +233,13 @@ Release SHA-256: `90ffb8cb5bd4ef020831e2285b4225141f5186cdc85373a8c7716324446e73
 **Net > Leave** disconnects without clearing saved bonding or history.
 
 No RF test messages are transmitted by boot fixtures or installation checks.
+
+### 0.10 hardware verification
+
+Compiled and flashed with verified hashes. Boot passed all existing fixtures and
+the new battery parsing, retry/wraparound, unread isolation and read-marker
+fixtures in RAM. A diagnostic local BLE disconnect produced a five-second retry
+and authenticated automatic reconnection without a PIN or resend. A later status
+query reported ready=1, 121 contacts and Heltec battery **3999 mV**. Five messages
+in the current local history were counted unread. Display interaction, dim/wake
+feel and real-world notification use still need human review.

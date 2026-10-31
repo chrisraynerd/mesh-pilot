@@ -6,6 +6,9 @@ __pycache__/
 *.map
 *.log
 *.dump
+*.read
+*.draft
+*.tmp
 *.key
 .env
 .env.*

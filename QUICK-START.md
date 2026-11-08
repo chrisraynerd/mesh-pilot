@@ -72,3 +72,23 @@ swapping antennas, reconnect, and keep its position, height and orientation the
 same. Results and Samples keep the measurements. An inconclusive result means
 there is not enough consistent evidence; this is not an SWR or antenna-gain meter.
 Stop or Back stops further automatic tests. A restart never resumes a batch.
+
+### Clearer messages and channel bots
+
+Messages now appear in larger-text bubbles: received messages on the left and
+yours on the right. Common emojis have small coloured symbols. Hold a bubble
+still and release to view details; dragging still scrolls.
+
+For automatic test replies, open **Setup > Bots**, choose a channel, check the
+**Location** label and tap **Bot OFF** to enable it. Do this separately for each
+channel you want. Anyone sending exactly **test**, **TEST**, **Test** or another
+mix of capitals in that channel can trigger a reception report. Replies give
+your location label, received hop count and last-hop signal-to-noise ratio when
+available. No reply is sent for old messages loaded after reconnecting.
+
+The bot waits a few seconds and is limited to six reply attempts per hour across
+all channels, one per minute and one per sender name every five minutes. It does
+not retry. See **Net > Sent** for outcomes. Your draft is kept separate. Turn it
+off on the same channel screen; full screen-device restarts turn all bots off.
+The location labels are remembered. A bot reply confirms this device received
+the trigger, not that every node or person received it.

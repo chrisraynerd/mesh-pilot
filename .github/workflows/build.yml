@@ -20,6 +20,10 @@ jobs:
         run: |
           c++ -std=c++11 -I src tests/scroll_gestures.cpp -o /tmp/mesh-pilot-scroll-check
           /tmp/mesh-pilot-scroll-check
+      - name: Check bot triggers and rate limits
+        run: |
+          c++ -std=c++11 -I src tests/bot_rules.cpp -o /tmp/mesh-pilot-bot-check
+          /tmp/mesh-pilot-bot-check
       - name: Build E32R28T firmware
         run: pio run
       - name: Save firmware artifacts

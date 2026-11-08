@@ -2,7 +2,7 @@
 
 An independent, open-source, phone-free MeshCore terminal for ESP32 touchscreens.
 
-Current development version: **0.15.1**.
+Current development version: **0.16.0**.
 Start with [the short user guide](QUICK-START.md).
 Public source: https://github.com/chrisraynerd/mesh-pilot
 Licence: MIT; dependency notices are listed in THIRD_PARTY.md.
@@ -33,12 +33,12 @@ An unsent draft is saved locally after two seconds without editing and restored
 for review after restart. Only one active draft is kept per radio; selecting a
 different recipient clears it. No draft is sent or retried automatically.
 
-Chat uses blue time, orange username and white body in a continuous wrapped
-flow, each message beginning on the next line. Conversations now scroll
+Chat uses larger white body text in left/right message bubbles, with separate
+sender, time and send-status labels. Conversations scroll
 continuously instead of being split into pages. Drag the text downward to reveal
 older messages and upward to return toward newer ones. **Latest** jumps to the
 bottom; **Write** and **Back** remain fixed underneath. Received UTF-8 is decoded before rendering;
-known emoji become readable labels such as [cat] and [hand], accents are
+common emoji become small coloured icons in bubbles (readable labels elsewhere), accents are
 transliterated and unsupported characters receive [U+XXXX] labels. Raw journal
 bytes remain unchanged. Names in channel messages are sender-supplied text.
 
@@ -549,3 +549,82 @@ on-device boot fixtures passed, and encrypted bonded reconnection succeeded.
 Saved send results, coverage tests and the antenna comparison restored without
 storage errors. The host gesture fixtures also passed in GitHub Actions.
 Physical scrolling and deliberate-hold feel await user confirmation.
+
+## Readable conversations (0.16)
+
+![CYD-rendered conversation with invented messages](docs/chat-preview.png)
+
+Landscape conversations now use rounded bubbles: incoming messages left, your
+messages right. Body text uses the larger 16-pixel font, with separate sender,
+UTC time and compact send status. Scroll and the 0.7-second hold-for-details
+remain; the last 80 messages are retained. Buffered strip drawing avoids clearing
+the display during a drag. Common emoji labels render as small coloured icons
+(smile, laugh, heart, thumbs-up, check, warning, SOS, hand/wave and cat). Other
+Unicode still has readable fallbacks; this is not a full phone emoji font.
+The raw received frames in the journal are unchanged.
+
+A bubble's **Accepted** means local radio acceptance, **Repeated** means a
+matching repeat was heard, and **Radio ACK** means recipient-radio receipt for
+a direct message. None means someone read the message. Hold the bubble for
+full details. Old sends without a saved result show **Unconfirmed**.
+
+## Per-channel reception bot (0.16)
+
+Open **Setup > Bots > channel**. Edit the location label (default Ramsbottom)
+and explicitly enable that channel. Each channel has its own switch and label;
+there is no universal enable. Settings bind to the companion radio and channel
+key. Changing a key disables its bot. Location edits turn that channel's bot off
+until you enable it again. Full CYD restarts turn all bots off; a BLE reconnect
+retains the switches but discards pending replies and drains old messages first.
+
+The first trigger is the complete message **test**, case-insensitive, allowing
+surrounding whitespace. A name prefix supplied by MeshCore is required. Direct
+messages, your own advertised name and messages such as 'testing', 'test please'
+or a bot's own reply do not trigger it. Example:
+
+    [bot] Seen in Ramsbottom; 2 hops; last-hop SNR 5.00 dB. RX only.
+
+It responds on the incoming channel only. Hop count is the received flood path
+count; a direct route/unknown path says 'hops unknown'. SNR belongs to that
+received message's last radio hop, not the whole route. Legacy messages without
+SNR say 'SNR unavailable'. Reserved bytes are not presented as RSSI. This follows
+the [MeshCore companion message implementation](https://github.com/meshcore-dev/MeshCore/blob/main/examples/companion_radio/MyMesh.cpp).
+A reply reports reception at this station; it does not establish that its own
+reply reached the sender or guarantee general network coverage.
+
+Replies wait a random 3–8 seconds and expire after 30 seconds if the radio is
+busy. Across all enabled channels: at most one attempt per minute, six per
+rolling hour and one per sender name per five minutes. The last 24 trigger
+identities are remembered in RAM, ignoring changed reception metadata. Sender
+names are not authenticated identities. Cancelled and uncertain attempts count
+against limits and are not retried. A full restart resets the counters and
+requires manually enabling the bot again. Old queued messages are ignored until
+the companion reports its queue empty after enabling/reconnecting.
+
+An automatic reply has its own frozen send record and does not use, erase or
+send your draft. **Net > Sent** records its outcome. Turning a bot off cancels
+its unsent reply; an already-issued radio request cannot be recalled. Browsing
+settings, boot checks and storage fixtures do not transmit bot messages.
+
+Developer checks: `tests/bot_rules.cpp` exercises trigger parsing, packed path
+counts, metadata-independent duplicates, rate limits and timer wrap. Boot
+fixtures also check per-channel isolation, backlog gating and separate draft
+state. `BOTTEST` checks a reserved temporary file and restores settings in RAM;
+`BOT?` prints counts only. `CHATPREVIEW` emits a RGB565 view of invented messages
+through USB for rendering inspection; it does not export real conversations.
+
+### 0.16 hardware verification
+
+The app-only image (887,584 bytes; SHA-256
+`711071d426b8c649eb48836f1de6d9033a52920b8c8be6125558421b91253a96`)
+was installed with verified flash hashes. All boot fixtures passed on the CYD,
+including per-channel bot gating and draft isolation. Static RAM is 46,324 bytes;
+free heap at Ready was 184,952 bytes. The isolated bot-settings round-trip and
+corruption checks passed. The preview above was rendered by the actual firmware
+with invented messages and captured over USB; no private conversation was exported.
+
+All channel bots were verified off, with no queued reply or consumed attempt.
+The Heltec was unavailable to BLE after the restart, so reconnect was retrying.
+A live incoming trigger/outgoing bot reply and a user check of the new layout
+remain to be verified. No bot messages or discovery probes were transmitted as
+part of these fixtures.

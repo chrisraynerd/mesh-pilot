@@ -21,6 +21,7 @@
 #include "discovery_tools.h"
 #include "field_tools.h"
 #include "antenna_tools.h"
+#include "bot_tools.h"
 
 TFT_eSPI lcd;
 SPIClass touchBus(HSPI);
@@ -32,7 +33,7 @@ const char* SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
 float ax, bx, cx, ay, by, cy;
 bool calibrated = false;
 bool pressed = false;
-enum class Screen { HOME, RADIOS, PIN, LINK, CHANNELS, CHAT, COMPOSE, INBOX, NETWORK, NODES, NODE, CLOCK, DIRECT_PICK, DIRECT_CHAT, CHANNEL_SLOTS, CHANNEL_EDIT, CONTACT_EDIT, TEXT_EDIT, CONFIRM, SETTINGS, DISCOVERY, NEARBY, NEARBY_DETAIL, ADVERT, RADIO_STATS, SENT_RESULTS, MESSAGE_DETAIL, COVERAGE, COVERAGE_NEW, COVERAGE_TEST, COVERAGE_SIGNAL, ANTENNA_LIST, ANTENNA_SETUP, ANTENNA_PICK, ANTENNA_SESSION, ANTENNA_RUN, ANTENNA_RESULTS, ANTENNA_SAMPLES, ANTENNA_HELP };
+enum class Screen { HOME, RADIOS, PIN, LINK, CHANNELS, CHAT, COMPOSE, INBOX, NETWORK, NODES, NODE, CLOCK, DIRECT_PICK, DIRECT_CHAT, CHANNEL_SLOTS, CHANNEL_EDIT, CONTACT_EDIT, TEXT_EDIT, CONFIRM, SETTINGS, DISCOVERY, NEARBY, NEARBY_DETAIL, ADVERT, RADIO_STATS, SENT_RESULTS, MESSAGE_DETAIL, COVERAGE, COVERAGE_NEW, COVERAGE_TEST, COVERAGE_SIGNAL, ANTENNA_LIST, ANTENNA_SETUP, ANTENNA_PICK, ANTENNA_SESSION, ANTENNA_RUN, ANTENNA_RESULTS, ANTENNA_SAMPLES, ANTENNA_HELP, BOT_CHANNELS, BOT_SETUP };
 Screen screen = Screen::HOME;
 std::vector<NimBLEAdvertisedDevice> radios;
 int selected = -1;
@@ -98,6 +99,7 @@ bool resetChatView=true;
 void releaseChatCanvas();
 bool messageScreen();
 bool handleChatDrag(bool down);
+void refreshChatDelivery();
 String hexText(const uint8_t* data,size_t length);
 String draft,statusLine;
 bool composingDirect=false,contactsForDirect=false;
@@ -109,6 +111,7 @@ uint16_t feedbackColour=TFT_WHITE;
 uint32_t feedbackUntil=0;
 struct SendWatch {
   bool active,direct,done,timedOut,accepted;
+  bool automatic=false;
   uint32_t started,deadline,timestamp,ack;
   uint16_t payloadLength;
   uint8_t payload[180];
@@ -152,6 +155,19 @@ int textPurpose=0;
 size_t textLimit=31;
 bool contactsLoaded=false;
 bool fixtureMode=false;
+void drawBotChannels();
+void drawBotSetup();
+bool botTouch(int x,int y);
+void loadBot();
+void resetBotLink();
+void botIncoming(const Reply& reply);
+void tickBot();
+void botQueueDrained();
+void saveBotLocation(const String& text);
+void botStatus();
+int activeBotCount();
+bool botStorageSelfTest();
+void chatPreview();
 std::vector<antenna::Session> antennaSessions;
 antenna::Session antennaDraft;
 uint32_t antennaSelectedId=0,antennaRunningId=0,antennaSaveAt=0,antennaPaintAt=0;
@@ -411,6 +427,7 @@ void linkScreen(const char* title, const char* detail) {
   if(prefs.getString("radioAddr","").length())button(212,184,96,"Saved");
 }
 void failLink(const char* detail,bool retry=true) {
+  resetBotLink();
   if(ready){resumeAfterReconnect=true;reconnectReturn=screen;}
   saveReadState();saveDraftNow();
   interruptSendResults();coverageFinished(field::TestState::INTERRUPTED);
@@ -430,6 +447,7 @@ void notifyRadio(NimBLERemoteCharacteristic*,uint8_t* data,size_t length,bool) {
   if(xQueueSend(replies,&reply,0)!=pdTRUE&&(data[0]<0x80||data[0]==0x82||data[0]==0x87||data[0]==0x8d||data[0]==0x8e))replyOverflow.store(true);
 }
 void connectRadio(bool automatic) {
+  resetBotLink();
   reconnectScheduled=false;if(!automatic){reconnectSuppressed=false;reconnectAttempt=0;batterySupported=true;}
   if(!automatic&&pinText.length()!=0 && pinText.length()!=6) {
     lcd.setTextColor(TFT_RED,BG);lcd.drawString("Enter all six digits",110,61,2);return;
@@ -522,6 +540,9 @@ void tickClock() {
       else if(strcmp(command,"STORAGETEST")==0&&pending!=Pending::SEND&&pending!=Pending::MANAGE&&pending!=Pending::VERIFY_CHANNEL&&!antennaBatch&&!antennaSampleActive)Serial.printf("Isolated read-state and draft storage fixtures: %s\n",terminalStorageSelfTest()?"passed":"FAILED");
       else if(strcmp(command,"FIELDTEST")==0&&pending!=Pending::SEND&&pending!=Pending::MANAGE&&pending!=Pending::VERIFY_CHANNEL&&!coverageCapture&&!antennaBatch&&!antennaSampleActive)Serial.printf("Isolated delivery and coverage storage fixtures: %s\n",fieldStorageSelfTest()?"passed":"FAILED");
       else if(strcmp(command,"ANTTEST")==0&&pending!=Pending::SEND&&pending!=Pending::MANAGE&&pending!=Pending::VERIFY_CHANNEL&&!antennaBatch&&!antennaSampleActive)Serial.printf("Isolated antenna storage fixtures: %s\n",antennaStorageSelfTest()?"passed":"FAILED");
+      else if(strcmp(command,"BOT?")==0)botStatus();
+      else if(strcmp(command,"BOTTEST")==0&&pending==Pending::NONE&&!antennaBatch)Serial.println(botStorageSelfTest()?"Bot storage fixtures passed; no RF send":"Bot storage fixtures FAILED");
+      else if(strcmp(command,"CHATPREVIEW")==0&&pending==Pending::NONE&&!antennaBatch)chatPreview();
       else if(strcmp(command,"ANT?")==0)Serial.printf("Antenna status: sessions=%u; batch=%d; sample=%d; storeFailed=%d\n",unsigned(antennaSessions.size()),antennaBatch,antennaSampleActive,antennaFailed);
       else if(strcmp(command,"FIELD?")==0)Serial.printf("Field status: results=%u; tests=%u; capture=%d; resultStoreFailed=%d; coverageStoreFailed=%d; proof=%d\n",unsigned(sendResults.size()),unsigned(coverageTests.size()),coverageCapture,sendResultsFailed,coverageFailed,haveFieldProof);
       else if(strcmp(command,"CLOCK?")==0)Serial.printf("Clock now: %s (%s)\n",clockText().c_str(),clockSource.c_str());
@@ -573,7 +594,7 @@ bool savePacket(const uint8_t* p,size_t n) {
 void loadHistory() {
   messages.clear();incomingSequence=0;storageBlocked=false;
   String id=activeAddress;id.replace(":","");
-  journalPath="/"+id+".log";loadReadState();loadFieldData();loadAntenna();
+  journalPath="/"+id+".log";loadReadState();loadFieldData();loadAntenna();loadBot();
   if(!storageReady) { storageBlocked=true;return; }
   File f=LittleFS.open(journalPath,"r");
   if(!f)return;
@@ -616,21 +637,23 @@ void paintFooter() {
   lcd.drawString(line.substring(0,width/6),x,compose?220:215,1);
 }
 void deliveryFeedback(const String& text,uint16_t colour,uint32_t duration) {
-  feedbackText=text;feedbackColour=colour;feedbackUntil=millis()+duration;paintFooter();
+  feedbackText=text;feedbackColour=colour;feedbackUntil=millis()+duration;refreshChatDelivery();paintFooter();
   Serial.printf("Send feedback: %s\n",text.c_str());
 }
-int newSendWatch(uint32_t timestamp) {
+int createSendWatch(uint32_t timestamp,bool direct,uint8_t channel,const uint8_t* peer,const String& target,const String& text,bool automatic=false) {
   int slot=-1;
   for(int i=0;i<4;i++)if(!sends[i].active){slot=i;break;}
   if(slot<0)for(int i=0;i<4;i++)if(sends[i].done||sends[i].timedOut){slot=i;break;}
   if(slot<0)return -1;
-  sends[slot]=SendWatch{};auto& s=sends[slot];s.active=true;s.direct=composingDirect;s.started=millis();s.deadline=millis()+(composingDirect?120000:45000);s.timestamp=timestamp;
-  s.target=displayText(composingDirect?directName:channels[currentChannel]);s.text=draft;s.channel=currentChannel;if(composingDirect)memcpy(s.peer,directPeer,6);
+  sends[slot]=SendWatch{};auto& s=sends[slot];s.active=true;s.direct=direct;s.automatic=automatic;s.started=millis();s.deadline=millis()+(direct?120000:45000);s.timestamp=timestamp;
+  s.target=displayText(target);s.text=text;s.channel=channel;if(direct&&peer)memcpy(s.peer,peer,6);
   addSendResult(s);
-  if(composingDirect&&haveSelfKey)s.ack=send_tracking::directAck(selfPublicKey,draft.c_str(),timestamp);
-  else if(!composingDirect&&haveChannelKey[currentChannel]&&wireName.length())s.payloadLength=send_tracking::channelPayload(channelKeys[currentChannel],wireName.c_str(),draft.c_str(),timestamp,s.payload);
+  if(direct&&haveSelfKey)s.ack=send_tracking::directAck(selfPublicKey,text.c_str(),timestamp);
+  else if(!direct&&haveChannelKey[channel]&&wireName.length())s.payloadLength=send_tracking::channelPayload(channelKeys[channel],wireName.c_str(),text.c_str(),timestamp,s.payload);
   latestSend=slot;return slot;
 }
+int newSendWatch(uint32_t timestamp){return createSendWatch(timestamp,composingDirect,currentChannel,directPeer,composingDirect?directName:channels[currentChannel],draft);}
+
 void tickDelivery() {
   if(feedbackText.length()&&int32_t(millis()-feedbackUntil)>=0){feedbackText="";paintFooter();}
   for(auto& s:sends) {
@@ -691,7 +714,6 @@ std::vector<int> visibleMessages(bool inbox) {
   return out;
 }
 struct ChatFlow { String text; int userEnd; };
-struct ChatRow { int start,end; };
 ChatFlow chatFlow(const ChatMessage& m) {
   uint32_t tod=m.timestamp%86400;
   char stamp[8];snprintf(stamp,sizeof(stamp),"%02u:%02u",unsigned(tod/3600),unsigned((tod%3600)/60));
@@ -703,20 +725,6 @@ ChatFlow chatFlow(const ChatMessage& m) {
   } else if(separator>0&&separator<=64){username=body.substring(0,separator);body=body.substring(separator+2);}
   String prefix=String(stamp)+" "+username+": ";
   return {prefix+body,int(prefix.length())};
-}
-std::vector<ChatRow> chatRows(const String& text) {
-  const int columns=49;
-  std::vector<ChatRow> rows;int start=0,length=text.length();
-  while(start<length) {
-    int end=min(start+columns,length);
-    if(end<length&&text[end]!=' ') {
-      int space=text.lastIndexOf(' ',end);
-      if(space>start)end=space;
-    }
-    rows.push_back({start,end});start=end;
-    while(start<length&&text[start]==' ')start++;
-  }
-  return rows;
 }
 #include "scroll_ui.h"
 
@@ -779,6 +787,7 @@ void processMessage(const Reply& reply) {
   bool saved=savePacket(reply.data,reply.length);
   decodeHistory(reply.data,reply.length);
   statusLine=saved?"New message saved":"Storage error; reception paused";
+  if(saved)botIncoming(reply);
   noteTimelineIncoming(reply);
   refreshMessageScreen();if(screen==Screen::COMPOSE)paintFooter();if(screen==Screen::DIRECT_PICK||screen==Screen::NODES)refreshNetwork();
 }
@@ -970,6 +979,7 @@ bool handleNetworkReply(const Reply& r) {
 #include "field_ui.h"
 #include "antenna_ui.h"
 #include "discovery_ui.h"
+#include "bot_ui.h"
 #include "management_ui.h"
 #include "terminal_ui.h"
 #include "draft_ui.h"
@@ -998,7 +1008,7 @@ void processReplies() {
     if(r.code==1) {
       pending=Pending::NONE;
       if(job==Pending::CHANNEL) { channelLoading++;fetchChannel(); }
-      else if(job==Pending::SEND) { if(pendingSend>=0){updateSendResult(sends[pendingSend].timestamp,field::SendState::REJECTED);sends[pendingSend].active=false;}statusLine="Radio rejected message; draft kept";drawCompose();deliveryFeedback("Radio rejected message; draft kept",TFT_RED); }
+      else if(job==Pending::SEND) { bool automatic=pendingSend>=0&&sends[pendingSend].automatic;if(pendingSend>=0){updateSendResult(sends[pendingSend].timestamp,field::SendState::REJECTED);sends[pendingSend].active=false;}statusLine=automatic?"Bot reply rejected":"Radio rejected message; draft kept";if(!automatic)drawCompose();deliveryFeedback(statusLine,TFT_RED);pendingSend=-1; }
       else if(job==Pending::SYNC) { statusLine="Receive failed; will retry";refreshMessageScreen(); }
       else if(job==Pending::STATS) {
         haveStats[statsStep]=false;statsStep++;
@@ -1042,7 +1052,7 @@ void processReplies() {
       pending=Pending::NONE;channelLoading++;fetchChannel();
     } else if(job==Pending::SYNC&&(r.code==7||r.code==8||r.code==16||r.code==17||r.code==27)) {
       pending=Pending::NONE;processMessage(r);lastPoll=millis()-3000;
-    } else if(job==Pending::SYNC&&r.code==10) { pending=Pending::NONE; }
+    } else if(job==Pending::SYNC&&r.code==10) { pending=Pending::NONE;botQueueDrained(); }
     else if(job==Pending::SEND&&(r.code==0||r.code==6)) {
       pending=Pending::NONE;statusLine="Connected";
       if(pendingSend>=0) {
@@ -1059,14 +1069,14 @@ void processReplies() {
       }
       recordOutgoing(true);
       if(pendingSend>=0){const auto& s=sends[pendingSend];bool sameDestination=composingDirect==s.direct&&(s.direct?!memcmp(directPeer,s.peer,6):currentChannel==s.channel);
-        if(sameDestination&&draft==s.text){draft="";clearSavedDraft();resetChatView=true;if(composingDirect)drawDirectChat();else drawChat();}}
-      pendingSend=-1;
+        if(!s.automatic&&sameDestination&&draft==s.text){draft="";clearSavedDraft();resetChatView=true;if(composingDirect)drawDirectChat();else drawChat();}}
+      pendingSend=-1;refreshMessageScreen();
     }
     else if(job==Pending::SET_CLOCK&&r.code==0){pending=Pending::NONE;Serial.println("Heltec accepted clock synchronisation");}
   }
   if(pending!=Pending::NONE&&int32_t(millis()-replyDeadline)>=0) {
     Pending job=pending;pending=Pending::NONE;
-    if(job==Pending::SEND) { statusLine="Not confirmed; check before retry";recordOutgoing(false);if(pendingSend>=0){sends[pendingSend].timedOut=true;updateSendResult(sends[pendingSend].timestamp,field::SendState::UNCONFIRMED);}drawCompose();deliveryFeedback("Send unconfirmed; check before retry",TFT_ORANGE);failLink("Send response timed out; delivery unconfirmed."); }
+    if(job==Pending::SEND) { statusLine="Not confirmed; check before retry";recordOutgoing(false);if(pendingSend>=0){sends[pendingSend].timedOut=true;updateSendResult(sends[pendingSend].timestamp,field::SendState::UNCONFIRMED);}if(pendingSend<0||!sends[pendingSend].automatic)drawCompose();deliveryFeedback("Send unconfirmed; check before retry",TFT_ORANGE);failLink("Send response timed out; delivery unconfirmed."); }
     else if(job==Pending::BATTERY){batterySupported=false;batteryWanted=false;failLink("Battery response timed out; reconnecting.");}
     else if(job==Pending::SET_CLOCK){statusLine="Local time set; radio update timed out";Serial.println("Radio clock update timed out; local clock retained");}
     else if(job==Pending::MANAGE||job==Pending::VERIFY_CHANNEL){managementResult(false,"Change unconfirmed; reload before retry");failLink("Change unconfirmed. Reconnect and reload.");}
@@ -1076,7 +1086,7 @@ void processReplies() {
 }
 void setup() {
   Serial.begin(115200);delay(300);
-  Serial.println("Mesh Pilot 0.15.1 / E32R28T");
+  Serial.println("Mesh Pilot 0.16.0 / E32R28T");
   pinMode(21,OUTPUT);digitalWrite(21,HIGH);
   lcd.init();lcd.setRotation(1);
   touchBus.begin(25,39,32,33);touch.begin(touchBus);touch.setRotation(1);
@@ -1085,10 +1095,10 @@ void setup() {
   ledcSetup(7,5000,8);ledcAttachPin(21,7);ledcWrite(7,brightness);lastTouchAt=millis();
   clockBase=max(uint32_t(BUILD_UNIX_TIME),uint32_t(prefs.getULong("timeLast",0)));clockAt=millis();
   fixtureMode=true;
-  bool checksPassed=protocol::selfTest()&&diagnostics::selfTest()&&text_render::selfTest()&&clock_tools::selfTest()&&send_tracking::selfTest()&&management::selfTest()&&managementUiSelfTest()&&terminal_tools::selfTest()&&terminalSelfTest()&&draft_tools::selfTest()&&scroll_tools::selfTest()&&scrollUiSelfTest()&&scrollBandSelfTest()&&discovery::selfTest()&&discoveryUiSelfTest()&&field::selfTest()&&antenna::selfTest();
+  bool checksPassed=protocol::selfTest()&&diagnostics::selfTest()&&text_render::selfTest()&&clock_tools::selfTest()&&send_tracking::selfTest()&&management::selfTest()&&managementUiSelfTest()&&terminal_tools::selfTest()&&terminalSelfTest()&&draft_tools::selfTest()&&scroll_tools::selfTest()&&scrollUiSelfTest()&&scrollBandSelfTest()&&discovery::selfTest()&&discoveryUiSelfTest()&&field::selfTest()&&antenna::selfTest()&&bot::selfTest()&&botUiSelfTest();
   fixtureMode=false;
   if(!checksPassed){Serial.println("Boot fixtures FAILED");header("Protocol/text/send check failed");while(true)delay(1000);}
-  Serial.println("Message, network, Unicode, clock, delivery, management, terminal, scrolling, nearby discovery, field and antenna fixtures passed");
+  Serial.println("Message, network, Unicode, clock, delivery, management, terminal, scrolling, nearby discovery, field, antenna and bot fixtures passed");
   storageReady=LittleFS.begin(false);
   if(!storageReady&&!prefs.getBool("fsinit",false))storageReady=LittleFS.begin(true);
   if(storageReady)prefs.putBool("fsinit",true);
@@ -1129,6 +1139,7 @@ void loop() {
   tickField();
   tickAntenna();
   tickNetwork();
+  tickBot();
   pollMessages();
   bool down=touch.touched();
   if(handleChatDrag(down)){pressed=down;delay(10);return;}
@@ -1138,7 +1149,8 @@ void loop() {
     TS_Point p=touch.getPoint();
     int x=lroundf(ax*p.x+bx*p.y+cx),y=lroundf(ay*p.x+by*p.y+cy);
     // Never log keypad coordinates: they would reveal the pairing PIN.
-    if(terminalTouch(x,y)) { /* Device settings. */ }
+    if(botTouch(x,y)) { /* Per-channel bot controls. */ }
+    else if(terminalTouch(x,y)) { /* Device settings. */ }
     else if(antennaTouch(x,y)) { /* Antenna comparison. */ }
     else if(fieldTouch(x,y)) { /* Dashboard, results and coverage. */ }
     else if(discoveryTouch(x,y)) { /* Discover and announce. */ }

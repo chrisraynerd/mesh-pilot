@@ -20,3 +20,5 @@ secrets*
 *.sent
 *.coverage
 *.antenna
+
+*.bot

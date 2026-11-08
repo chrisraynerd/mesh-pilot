@@ -51,6 +51,10 @@ inline std::string ascii(const uint8_t* p,size_t n) {
       case 0x1f44b:replacement="[wave]";break;
       case 0x1f44d:replacement="[thumbs up]";break;
       case 0x2764:replacement="[heart]";break;
+      case 0x2705:case 0x2714:replacement="[check]";break;
+      case 0x26a0:replacement="[warning]";break;
+      case 0x1f198:replacement="[SOS]";break;
+      case 0x1f602:case 0x1f923:replacement="[laugh]";break;
       case 0x1f600:case 0x1f603:case 0x1f604:case 0x1f642:replacement="[smile]";break;
       case 0xfffd:replacement="[?]";break;
     }

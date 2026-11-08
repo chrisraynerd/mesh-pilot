@@ -2,7 +2,7 @@
 
 An independent, open-source, phone-free MeshCore terminal for ESP32 touchscreens.
 
-Current development version: **0.16.0**.
+Current development version: **0.16.1**.
 Start with [the short user guide](QUICK-START.md).
 Public source: https://github.com/chrisraynerd/mesh-pilot
 Licence: MIT; dependency notices are listed in THIRD_PARTY.md.
@@ -628,3 +628,12 @@ The Heltec was unavailable to BLE after the restart, so reconnect was retrying.
 A live incoming trigger/outgoing bot reply and a user check of the new layout
 remain to be verified. No bot messages or discovery probes were transmitted as
 part of these fixtures.
+
+### 0.16.1 editor verification
+
+The final installed build also adds the bot location editor's title and bounds
+checks for editor titles. Boot now exercises that actual editor entry screen.
+All boot fixtures, the isolated storage checks and the USB-rendered conversation
+preview passed again. Bots remained off. The app image is 887,856 bytes with
+SHA-256 `a5478c0a53b5b6f3c8a72f8ebeeb31b2882324eb237c8c69becad8aa67945cb9`.
+The live BLE/RF limitation above remains.

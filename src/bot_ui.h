@@ -94,7 +94,7 @@ bool botStorageSelfTest(){
   for(int i=0;i<40;i++){memset(botChannels[i].key,i+1,16);snprintf(botChannels[i].place,25,"Fixture %d",i);}
   bool ok=writeBotSettings(path)&&readBotSettings(path,loaded)&&!memcmp(loaded,botChannels,sizeof(loaded));
   File f=LittleFS.open(path,"r+");if(f){f.seek(12);f.write(uint8_t(0xff));f.close();}else ok=false;
-  ok=ok&&!readBotSettings(path,loaded);memcpy(botChannels,saved,sizeof(saved));LittleFS.remove(path);LittleFS.remove(path+".tmp");journalPath=savedJournal;return ok;
+  ok=ok&&!readBotSettings(path,loaded);memcpy(botChannels,saved,sizeof(saved));LittleFS.remove(path);if(LittleFS.exists(path+".tmp"))LittleFS.remove(path+".tmp");journalPath=savedJournal;return ok;
 }
 
 bool botUiSelfTest(){
@@ -116,5 +116,6 @@ bool botUiSelfTest(){
   for(auto& watch:sends)watch=SendWatch{};latestSend=-1;ready=linkActive=false;maxChannels=0;
   channels[0]=channels[1]="";haveChannelKey[0]=haveChannelKey[1]=false;wireName="";currentChannel=0;composingDirect=false;
   memset(botEnabled,0,sizeof(botEnabled));botLimits=bot::Limits{};resetBotLink();botInfo="";
-  draft=originalDraft;screen=originalScreen;fixtureMode=originalFixture;return ok;
+  int originalPurpose=textPurpose;String originalEdit=editText;textPurpose=9;editText="Ramsbottom";drawTextEditor();ok=ok&&screen==Screen::TEXT_EDIT;
+  textPurpose=originalPurpose;editText=originalEdit;draft=originalDraft;screen=originalScreen;fixtureMode=originalFixture;return ok;
 }

@@ -59,7 +59,7 @@ void drawBubble(TFT_eSprite& target,const TimelineBubble& b,int y){
     for(int i=row.start;i<row.end;i++){uint8_t c=b.body[i];if(c>=128)bubbleIcon(target,c-128,x,yy,background);
       else {char glyph[2]={char(c),0};target.setTextColor(TFT_WHITE,background);target.drawString(glyph,x,yy,2);}x+=bubbleCharWidth(c);}}
   String meta=b.time,delivery=bubbleStatus(messages[b.message]);if(delivery.length())meta+="  "+delivery;
-  target.setTextColor(0xBDF7,background);target.drawString(meta,b.x+b.width-9-meta.length()*6,y+b.height-20,1);
+  target.setTextColor(0x5C7F,background);target.drawString(meta,b.x+b.width-9-meta.length()*6,y+6,1);
 }
 void paintTimeline(){
   if(!chatCanvasAttempted){chatCanvasAttempted=true;chatCanvas.setColorDepth(16);
@@ -82,10 +82,13 @@ void buildTimeline(bool inbox){
   auto list=visibleMessages(inbox);timelineBubbles.clear();int height=0;
   for(int index:list){auto& m=messages[index];auto flow=chatFlow(m);TimelineBubble b{};
     b.id=(uint64_t(m.outgoing?0x80000000u:m.sequence)<<32)|m.timestamp;b.message=index;b.top=height;
-    b.sender=m.outgoing?"You":flow.text.substring(6,flow.userEnd-2);b.sender=b.sender.substring(0,37);
+    b.sender=m.outgoing?"You":flow.text.substring(6,flow.userEnd-2);
     b.body=bubbleBody(flow.text.substring(flow.userEnd));b.time=flow.text.substring(0,5);b.lines=bubbleLines(b.body);
-    int width=max(int(b.sender.length())*6,int((b.time.length()+2+bubbleStatus(m).length())*6));for(const auto& row:b.lines)width=max(width,row.width);
-    b.width=min(268,max(92,width+18));b.x=m.outgoing?CHAT_WIDTH-b.width:0;b.height=44+b.lines.size()*19;height+=b.height;timelineBubbles.push_back(std::move(b));}
+    String delivery=bubbleStatus(m);int metaWidth=(b.time.length()+(delivery.length()?2+delivery.length():0))*6;
+    int nameChars=(268-18-12-metaWidth)/6;
+    if(int(b.sender.length())>nameChars)b.sender=b.sender.substring(0,nameChars-3)+"...";
+    int width=int(b.sender.length())*6+12+metaWidth;for(const auto& row:b.lines)width=max(width,row.width);
+    b.width=min(268,max(92,width+18));b.x=m.outgoing?CHAT_WIDTH-b.width:0;b.height=31+b.lines.size()*19;height+=b.height;timelineBubbles.push_back(std::move(b));}
   if(reset){chatPosition.reset(height);chatGesture=false;}else{int anchor=0;if(anchorId)for(const auto& b:timelineBubbles)if(b.id==anchorId){anchor=b.top+within;break;}chatPosition.resize(height,anchor);}
   timelineKey=key;resetChatView=false;
 }
@@ -129,7 +132,7 @@ bool handleChatDrag(bool down) {
 bool scrollUiSelfTest(){
   Screen original=screen;uint8_t originalChannel=currentChannel;screen=Screen::CHAT;currentChannel=0;resetChatView=true;messages.clear();incomingSequence=0;
   for(int i=0;i<20;i++)remember(0,false,"Unit: scrolling fixture",i+1);buildTimeline(false);
-  bool ok=chatPosition.following&&chatPosition.offset==chatPosition.maximum()&&timelineBubbles.size()==20&&timelineBubbles[0].height>=63;
+  bool ok=chatPosition.following&&chatPosition.offset==chatPosition.maximum()&&timelineBubbles.size()==20&&timelineBubbles[0].height>=50;
   int removedHeight=timelineBubbles[0].height;chatPosition.drag(44);int before=chatPosition.offset;
   remember(0,false,"Unit: arriving fixture",21);buildTimeline(false);ok=ok&&!chatPosition.following&&chatPosition.offset==before;
   Reply different{};different.code=8;different.length=9;different.data[0]=8;different.data[1]=1;noteTimelineIncoming(different);ok=ok&&!chatPosition.newMessages;
@@ -143,7 +146,7 @@ bool scrollUiSelfTest(){
 bool scrollBandSelfTest(){
   TFT_eSprite reference(&lcd),band(&lcd);reference.setColorDepth(16);band.setColorDepth(16);
   if(!reference.createSprite(CHAT_WIDTH,96)||!band.createSprite(CHAT_WIDTH,8)){reference.deleteSprite();band.deleteSprite();return false;}
-  messages.push_back({0,false,"",1,{},false,1});TimelineBubble b{};b.message=0;b.x=0;b.width=268;b.height=82;b.sender="Fixture";b.time="12:34";
+  messages.push_back({0,false,"",1,{},false,1});TimelineBubble b{};b.message=0;b.x=0;b.width=268;b.height=69;b.sender="Fixture";b.time="12:34";
   b.body=bubbleBody("Hello [heart] [smile] [thumbs up] [warning] [check] [SOS] [cat] [hand] [laugh]");b.lines=bubbleLines(b.body);
   reference.fillSprite(BG);drawBubble(reference,b,-5);bool ok=true;
   for(int top=0;top<96;top+=8){band.fillSprite(BG);drawBubble(band,b,-5-top);for(int y=0;y<8;y++)for(int x=0;x<CHAT_WIDTH;x++)if(reference.readPixel(x,top+y)!=band.readPixel(x,y))ok=false;}

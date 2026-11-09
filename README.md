@@ -2,7 +2,7 @@
 
 An independent, open-source, phone-free MeshCore terminal for ESP32 touchscreens.
 
-Current development version: **0.16.1**.
+Current development version: **0.16.2**.
 Start with [the short user guide](QUICK-START.md).
 Public source: https://github.com/chrisraynerd/mesh-pilot
 Licence: MIT; dependency notices are listed in THIRD_PARTY.md.
@@ -637,3 +637,19 @@ All boot fixtures, the isolated storage checks and the USB-rendered conversation
 preview passed again. Bots remained off. The app image is 887,856 bytes with
 SHA-256 `a5478c0a53b5b6f3c8a72f8ebeeb31b2882324eb237c8c69becad8aa67945cb9`.
 The live BLE/RF limitation above remains.
+
+### Compact bubble headers (0.16.2)
+
+Time and outgoing send status now sit at the top right, on the sender-name row.
+The bottom metadata row is removed, saving 13 pixels per bubble without reducing
+body text size. Long names are shortened with an ellipsis to leave a clear gap
+before the timestamp. Full names and send details remain in message details.
+The user confirmed the 0.16.1 larger bubbles were clearer and scrolling smooth.
+
+The 888,016-byte app image was installed with verified flash hashes (SHA-256
+`f75a9dd84bfc01d963ff47d47c47fe710f134869ad50f825bdf6ef8351f6f9fc`).
+The CYD subsequently reported ready and connected to the Heltec, confirming it
+passed the startup checks including scrolling and buffered rendering. One
+channel bot was enabled during the final read-only status check and was left
+running. The full-frame USB preview could not be captured in that live session;
+the image in the 0.16 section shows the earlier bottom-row layout.

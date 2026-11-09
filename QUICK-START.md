@@ -76,7 +76,8 @@ Stop or Back stops further automatic tests. A restart never resumes a batch.
 ### Clearer messages and channel bots
 
 Messages now appear in larger-text bubbles: received messages on the left and
-yours on the right. Common emojis have small coloured symbols. Hold a bubble
+yours on the right. Time and outgoing send status sit at the top right beside
+the sender, leaving more room for the message. Common emojis have small coloured symbols. Hold a bubble
 still and release to view details; dragging still scrolls.
 
 For automatic test replies, open **Setup > Bots**, choose a channel, check the

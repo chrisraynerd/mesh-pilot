@@ -24,6 +24,10 @@ jobs:
         run: |
           c++ -std=c++11 -I src tests/bot_rules.cpp -o /tmp/mesh-pilot-bot-check
           /tmp/mesh-pilot-bot-check
+      - name: Check weather rules
+        run: |
+          c++ -std=c++11 -I src tests/weather_rules.cpp -o /tmp/mesh-pilot-weather-check
+          /tmp/mesh-pilot-weather-check
       - name: Build E32R28T firmware
         run: pio run
       - name: Save firmware artifacts

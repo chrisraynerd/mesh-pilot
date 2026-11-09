@@ -2,7 +2,7 @@
 
 An independent, open-source, phone-free MeshCore terminal for ESP32 touchscreens.
 
-Current development version: **0.17.0**.
+Current development version: **0.18.0**.
 Start with [the short user guide](QUICK-START.md).
 Public source: https://github.com/chrisraynerd/mesh-pilot
 Licence: MIT; dependency notices are listed in THIRD_PARTY.md.
@@ -689,3 +689,73 @@ reconnected to its bonded Heltec. Free heap before BLE was 174,768 bytes and
 static RAM 56,492 bytes. The isolated bot-storage and legacy migration checks
 passed on the live CYD; existing settings reported no storage failure. Human
 validation of the editor and a real custom reply remain pending.
+
+## Wi-Fi and weather (0.18)
+
+**Setup > Wi-Fi** accepts a 2.4 GHz network name and password. The password is
+masked and never printed to USB. The **123 / More / abc** key cycles additional
+symbols. **Save + connect** stores credentials in the device's NVS preferences
+and enables background reconnect after the companion is ready. **Turn Wi-Fi off**
+keeps details; **Forget** removes them. These device-local credentials are not
+repository files. This build does not enable flash encryption. The app only
+uses Wi-Fi station mode, with no access point or general internet gateway.
+
+**Setup > Bots > channel > Commands > Weather** enables weather for that channel
+only. Its default is OFF. `wx` and `weather` use the channel's location label;
+`wx Ramsbottom` accepts a UK place name (up to 32 ASCII characters), optionally
+qualified by county. Ambiguous locations ask for more detail. Existing custom
+`wx` or `weather` keywords must be renamed before enabling weather. Ordinary
+keywords still match whole messages; weather alone accepts a location argument.
+Help includes `wx` only where enabled. Enable the channel bot after configuring.
+
+The **Check weather / Check here** buttons perform local lookups without radio
+transmissions. A successful response uses Open-Meteo model-based current weather,
+Celsius and mph, with the source time labelled `Z` (UTC) and provider attribution.
+The geographic search is restricted to GB. Sources:
+https://open-meteo.com/en/docs and https://open-meteo.com/en/docs/geocoding-api.
+API usage is subject to the provider's terms, including its non-commercial tier.
+
+HTTPS checks hostnames and certificate chains against embedded ISRG Root X1.
+It requires the terminal's trusted clock; certificate checks are never disabled.
+The worker checks numeric types, units, bounds and source age (at most 90 minutes
+old, allowing up to 30 minutes ahead for clock/model timing). Two fixed HTTPS
+hosts are used; mesh messages cannot supply URLs. Responses are limited to 4 KB,
+JSON nesting is bounded, and connection/handshake/read timeouts are finite.
+
+A single background FreeRTOS worker handles web requests. UI, BLE polling and
+journal writes remain on the main loop. No worker touches drafts, UI, NVS or
+message history. Wi-Fi and BLE coexistence still needs live device testing under
+load. Low memory yields an unavailable response, rather than starting a risky
+lookup. Queued weather requests expire after 45 seconds and are never retried.
+A generation check discards results for cancelled/disconnected bot requests.
+
+Four weather results are cached in RAM only. Results fetched within 15 minutes
+can be reused; during failure, older cached data can be used for up to six hours
+from its source time. Every reused result explicitly says `CACHED` and gives its
+source age in minutes. Nothing cached survives a full CYD power cycle. Without
+usable cached data, an internet/service/clock/memory error is returned clearly.
+All existing bot rate limits apply to weather and failure replies.
+
+Bot settings use MPB3 (same bounded records, with a new weather bit); MPB1/MPB2
+migrate with weather OFF. Tests cover MPB3 round trips, corruption and both older
+formats. Pure weather checks cover command boundaries, URL encoding, bounds and
+cache age. Boot checks additionally validate JSON nulls/units/stale data, UK
+location parsing and cancellation. No test fixture sends RF or joins Wi-Fi.
+
+The Wi-Fi build also stores contact data once, reconstructing the full companion
+frame when editing or changing favourites. Route bytes, coordinates, timestamps
+and names are preserved and checked by frame round-trip fixtures. A segmented
+contact container avoids the temporary contiguous allocation that caused the
+previous 128-to-256 vector growth failure. The list still holds all 256 contacts.
+
+### 0.18 initial device verification
+
+The corrected app image (1,477,856 bytes, SHA-256
+`b613ee24c51bd0b3d23116b01621ba76bbcda85fc4266f4fe79fe8f52e1651cc`)
+was installed with verified hashes. Boot checks passed, the bonded Heltec
+reconnected and all 256 contacts loaded without the earlier allocation failure.
+A subsequent status check showed 85,148 bytes free heap and a 73,716-byte largest
+block with Wi-Fi off. Storage checks passed for current bot settings and both
+older formats. Actual CYD Wi-Fi/HTTPS operation remains pending entry of the
+owner's Wi-Fi details. Provider endpoints were also checked from the development
+computer, which does not establish CYD network or BLE-coexistence success.

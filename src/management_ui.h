@@ -92,7 +92,8 @@ void beginTextEdit(int purpose) {
   upperCase=false;symbols=false;drawTextEditor();
 }
 void returnEditor() {
-  if(editorReturn==Screen::BOT_COMMAND_EDIT)drawBotCommandEdit();
+  if(editorReturn==Screen::WIFI_SETUP){if(textPurpose==13)editText="";drawWifi();}
+  else if(editorReturn==Screen::BOT_COMMAND_EDIT)drawBotCommandEdit();
   else if(editorReturn==Screen::BOT_SETUP)drawBotSetup();
   else if(editorReturn==Screen::ANTENNA_SETUP)drawAntennaSetup();
   else if(editorReturn==Screen::COVERAGE_NEW)drawCoverageNew();
@@ -102,18 +103,19 @@ void returnEditor() {
 }
 void drawTextEditor() {
   screen=Screen::TEXT_EDIT;
-  const char* titles[]={"Find contact (blank clears)","Channel name","Channel key: 32 hex digits","Contact name","Public key: 64 hex digits","Name this test location","Antenna test location","Name antenna A","Name antenna B","Bot location label","Bot keyword","Bot reply"};header(textPurpose>=0&&textPurpose<int(sizeof(titles)/sizeof(titles[0]))?titles[textPurpose]:"Edit text");
-  wrapped(displayText(editText),12,40,3);
+  const char* titles[]={"Find contact (blank clears)","Channel name","Channel key: 32 hex digits","Contact name","Public key: 64 hex digits","Name this test location","Antenna test location","Name antenna A","Name antenna B","Bot location label","Bot keyword","Bot reply","Wi-Fi name (SSID)","Wi-Fi password"};header(textPurpose>=0&&textPurpose<int(sizeof(titles)/sizeof(titles[0]))?titles[textPurpose]:"Edit text");
+  wrapped(textPurpose==13?String("********************************").substring(0,min(size_t(32),size_t(editText.length()))):displayText(editText),12,40,3);
   const char* normal[]={"qwertyuiop","asdfghjkl","zxcvbnm.,?"};
   const char* special[]={"1234567890","!@#$%&*()","-_=+/:;?'"};
   const char* hexKeys[]={"1234567890","abcdef",""};
   bool hex=textPurpose==2||textPurpose==4;
   for(int row=0;row<3;row++) {
-    String keys=hex?hexKeys[row]:symbols?special[row]:normal[row];if(!keys.length())continue;if(upperCase&&!hex&&!symbols)keys.toUpperCase();
+    const char* extra[]={"[]{}<>\\|~^","\"`;:","!@#$%&*()"};
+    String keys=(textPurpose==12||textPurpose==13)&&credentialSymbols==2?extra[row]:hex?hexKeys[row]:symbols?special[row]:normal[row];if(!keys.length())continue;if(upperCase&&!hex&&!symbols)keys.toUpperCase();
     int width=296/keys.length();for(size_t col=0;col<keys.length();col++){char label[]={keys[col],0};smallButton(12+col*width,83+row*32,width-2,29,label);}
   }
   if(hex){smallButton(12,180,96,30,"Clear");lcd.setTextColor(TFT_WHITE,BG);lcd.drawString("0-9 and a-f",122,190,1);}
-  else {smallButton(12,180,46,30,upperCase?"abc":"ABC");smallButton(62,180,46,30,symbols?"abc":"123");smallButton(112,180,100,30,"Space");}
+  else {smallButton(12,180,46,30,upperCase?"abc":"ABC");smallButton(62,180,46,30,(textPurpose==12||textPurpose==13)?(credentialSymbols==0?"123":credentialSymbols==1?"More":"abc"):symbols?"abc":"123");smallButton(112,180,100,30,"Space");}
   smallButton(216,180,92,30,"Delete");
   smallButton(12,214,68,23,"Cancel");smallButton(228,214,80,23,"Done");
   lcd.setTextColor(TFT_WHITE,BG);lcd.drawString((String(editText.length())+"/"+String(textLimit)).c_str(),112,220,1);
@@ -159,7 +161,7 @@ bool prepareContact() {
     auto it=std::find_if(contacts.begin(),contacts.end(),[&](const diagnostics::Contact& c){return !memcmp(c.key,key,32);});
     if(it==contacts.end()){managementInfo="Contact changed; reload the list";drawContactEdit();return false;}
     if(it->routeStale){managementInfo="Route changed; reload list before editing";drawContactEdit();return false;}
-    memcpy(managementFrame,it->frame,it->length);managementLength=min(size_t(it->length),size_t(144));
+    diagnostics::encodeContact(*it,managementFrame);managementLength=min(size_t(it->length),size_t(144));
   }
   managementFrame[0]=9;memcpy(managementFrame+1,key,32);managementFrame[33]=editContactType;
   memset(managementFrame+100,0,32);memcpy(managementFrame+100,editContactName.c_str(),editContactName.length());
@@ -179,7 +181,7 @@ void startManagement(ManageAction action) {
     if(index<0||index>=int(contacts.size())){managementInfo="Contact changed; reload the list";drawDirectPicker();return;}
     auto& c=contacts[index];memcpy(managementKey,c.key,32);
     if(action==ManageAction::FAVOURITE&&c.routeStale){managementInfo="Route changed; reload list before editing";drawNode();return;}
-    if(action==ManageAction::FAVOURITE) {memcpy(managementFrame,c.frame,c.length);managementFrame[0]=9;managementFrame[34]^=1;managementLength=min(size_t(c.length),size_t(144));}
+    if(action==ManageAction::FAVOURITE) {diagnostics::encodeContact(c,managementFrame);managementFrame[0]=9;managementFrame[34]^=1;managementLength=min(size_t(c.length),size_t(144));}
     else {managementFrame[0]=action==ManageAction::CONTACT_DELETE?15:13;memcpy(managementFrame+1,c.key,32);managementLength=33;}
   }
   manageAction=action;
@@ -210,7 +212,7 @@ bool handleManagementReply(const Reply& r) {
     } else if(manageAction==ManageAction::CONTACT_DELETE) {
       contacts.erase(std::remove_if(contacts.begin(),contacts.end(),[](const diagnostics::Contact& c){return !memcmp(c.key,managementKey,32);}),contacts.end());
     } else if(manageAction==ManageAction::RESET_PATH) {
-      for(auto& c:contacts)if(!memcmp(c.key,managementKey,32)){c.path=255;c.frame[35]=255;}
+      for(auto& c:contacts)if(!memcmp(c.key,managementKey,32)){c.path=255;}
     }
     managementResult(true,"Saved on Heltec; allow 5s before powering off");return true;
   }
@@ -237,11 +239,12 @@ bool managementTouch(int x,int y) {
     bool hex=textPurpose==2||textPurpose==4;
     if(y>=83&&y<179&&x>=12&&x<308) {
       int row=(y-83)/32;const char* normal[]={"qwertyuiop","asdfghjkl","zxcvbnm.,?"};const char* special[]={"1234567890","!@#$%&*()","-_=+/:;?'"};const char* digits[]={"1234567890","abcdef",""};
-      String keys=hex?digits[row]:symbols?special[row]:normal[row];if(upperCase&&!hex&&!symbols)keys.toUpperCase();
+      const char* extra[]={"[]{}<>\\|~^","\"`;:","!@#$%&*()"};
+      String keys=(textPurpose==12||textPurpose==13)&&credentialSymbols==2?extra[row]:hex?digits[row]:symbols?special[row]:normal[row];if(upperCase&&!hex&&!symbols)keys.toUpperCase();
       if(keys.length()){int width=296/keys.length(),col=(x-12)/width;if(col<int(keys.length())&&(x-12)%width<width-2&&(y-83)%32<29&&editText.length()<textLimit){editText+=keys[col];drawTextEditor();}}
     } else if(y>=180&&y<210) {
       if(x>=12&&x<=58){if(hex)editText="";else upperCase=!upperCase;}
-      else if(x>=62&&x<=108){if(hex)editText="";else symbols=!symbols;}
+      else if(x>=62&&x<=108){if(hex)editText="";else if(textPurpose==12||textPurpose==13){credentialSymbols=(credentialSymbols+1)%3;symbols=credentialSymbols!=0;}else symbols=!symbols;}
       else if(x>=112&&x<=212){if(!hex&&editText.length()<textLimit)editText+=' ';}
       else if(x>=216&&x<=308&&editText.length()){size_t pos=editText.length()-1;while(pos&&((uint8_t(editText[pos])&0xc0)==0x80))pos--;editText.remove(pos);}
       drawTextEditor();
@@ -254,6 +257,7 @@ bool managementTouch(int x,int y) {
         else if(textPurpose==3)editContactName=editText;
         else if(textPurpose==5)coveragePlace=editText;
         else if(textPurpose==9)saveBotLocation(editText);
+        else if(textPurpose==12||textPurpose==13)saveWifiText(editText,textPurpose==13);
         else if(textPurpose==10||textPurpose==11)saveBotText(editText,textPurpose==11);
         else if(textPurpose>=6&&textPurpose<=8){char* dest=textPurpose==6?antennaDraft.place:textPurpose==7?antennaDraft.nameA:antennaDraft.nameB;size_t length=textPurpose==6?24:16;memset(dest,0,length+1);memcpy(dest,editText.c_str(),min(length,size_t(editText.length())));}
         else editContactKey=editText;

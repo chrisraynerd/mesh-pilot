@@ -106,3 +106,21 @@ The reception-report keyword is editable, while `help` lists enabled commands.
 Keywords match a whole message in any mix of capitals; `meeting please` does not
 match `meeting`. Existing cooldowns also apply to these commands. Wi-Fi/weather
 is planned as the next stage and is not part of this offline update.
+
+### Internet weather
+
+1. Open **Setup > Wi-Fi**, enter your **2.4 GHz** network name and password, then
+   **Save + connect**. Passwords stay hidden; **123**, then **More**, offers extra
+   symbols. Wait for “Wi-Fi connected”.
+2. Tap **Check weather** for a local Ramsbottom/default-location lookup. This
+   check sends no mesh message.
+3. Open **Setup > Bots > channel > Commands > Weather** and enable weather there.
+   Return to that channel's bot setup and enable the bot too.
+4. Another radio can send `wx Ramsbottom`, `weather Ramsbottom`, or just `wx`
+   for that channel's saved location. The same sender cooldown is five minutes.
+
+Weather supports UK places, uses Celsius/mph and shows UTC source time. It is
+Open-Meteo model data. Cached replies say **CACHED** with their age; otherwise an
+unavailable message explains why a lookup failed. Weather needs Wi-Fi internet;
+normal mesh messages and offline commands continue without it. **Turn Wi-Fi off**
+keeps credentials; **Forget** removes them. Full CYD restarts turn channel bots off.

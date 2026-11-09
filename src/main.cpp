@@ -4,6 +4,7 @@
 #include <NimBLEDevice.h>
 #include <Preferences.h>
 #include <vector>
+#include <deque>
 #include <atomic>
 #include <LittleFS.h>
 #include "protocol.h"
@@ -22,6 +23,13 @@
 #include "field_tools.h"
 #include "antenna_tools.h"
 #include "bot_tools.h"
+#include "weather_tools.h"
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
+#include <sys/time.h>
+#include <esp_heap_caps.h>
 
 TFT_eSPI lcd;
 SPIClass touchBus(HSPI);
@@ -33,7 +41,7 @@ const char* SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
 float ax, bx, cx, ay, by, cy;
 bool calibrated = false;
 bool pressed = false;
-enum class Screen { HOME, RADIOS, PIN, LINK, CHANNELS, CHAT, COMPOSE, INBOX, NETWORK, NODES, NODE, CLOCK, DIRECT_PICK, DIRECT_CHAT, CHANNEL_SLOTS, CHANNEL_EDIT, CONTACT_EDIT, TEXT_EDIT, CONFIRM, SETTINGS, DISCOVERY, NEARBY, NEARBY_DETAIL, ADVERT, RADIO_STATS, SENT_RESULTS, MESSAGE_DETAIL, COVERAGE, COVERAGE_NEW, COVERAGE_TEST, COVERAGE_SIGNAL, ANTENNA_LIST, ANTENNA_SETUP, ANTENNA_PICK, ANTENNA_SESSION, ANTENNA_RUN, ANTENNA_RESULTS, ANTENNA_SAMPLES, ANTENNA_HELP, BOT_CHANNELS, BOT_SETUP, BOT_COMMANDS, BOT_COMMAND_EDIT };
+enum class Screen { HOME, RADIOS, PIN, LINK, CHANNELS, CHAT, COMPOSE, INBOX, NETWORK, NODES, NODE, CLOCK, DIRECT_PICK, DIRECT_CHAT, CHANNEL_SLOTS, CHANNEL_EDIT, CONTACT_EDIT, TEXT_EDIT, CONFIRM, SETTINGS, DISCOVERY, NEARBY, NEARBY_DETAIL, ADVERT, RADIO_STATS, SENT_RESULTS, MESSAGE_DETAIL, COVERAGE, COVERAGE_NEW, COVERAGE_TEST, COVERAGE_SIGNAL, ANTENNA_LIST, ANTENNA_SETUP, ANTENNA_PICK, ANTENNA_SESSION, ANTENNA_RUN, ANTENNA_RESULTS, ANTENNA_SAMPLES, ANTENNA_HELP, BOT_CHANNELS, BOT_SETUP, BOT_COMMANDS, BOT_COMMAND_EDIT, WIFI_SETUP, WEATHER_SETTINGS, WEATHER_RESULT };
 Screen screen = Screen::HOME;
 std::vector<NimBLEAdvertisedDevice> radios;
 int selected = -1;
@@ -170,6 +178,19 @@ void drawBotCommandEdit();
 void botStatus();
 int activeBotCount();
 bool botStorageSelfTest();
+void initInternet();
+void tickInternet();
+void drawWifi();
+void drawWeatherSettings();
+bool internetTouch(int x,int y);
+void saveWifiText(const String& value,bool password);
+bool requestWeather(const String& place,bool forBot);
+void cancelBotWeather();
+bool botWeatherWaiting();
+void internetStatus();
+void localWeatherTest();
+bool weatherJsonSelfTest();
+uint8_t credentialSymbols=0;
 void chatPreview();
 std::vector<antenna::Session> antennaSessions;
 antenna::Session antennaDraft;
@@ -243,7 +264,7 @@ struct ChatMessage { uint8_t channel; bool direct; String text; uint32_t timesta
 std::vector<ChatMessage> messages;
 ChatMessage detailMessage{};
 bool detailHasMessage=false;
-std::vector<diagnostics::Contact> contacts;
+std::deque<diagnostics::Contact> contacts;
 std::atomic<bool> replyOverflow{false};
 int nodePage=0,nodeSelected=-1;
 uint8_t firmwareCode=0,statsStep=0;
@@ -543,6 +564,8 @@ void tickClock() {
       else if(strcmp(command,"STORAGETEST")==0&&pending!=Pending::SEND&&pending!=Pending::MANAGE&&pending!=Pending::VERIFY_CHANNEL&&!antennaBatch&&!antennaSampleActive)Serial.printf("Isolated read-state and draft storage fixtures: %s\n",terminalStorageSelfTest()?"passed":"FAILED");
       else if(strcmp(command,"FIELDTEST")==0&&pending!=Pending::SEND&&pending!=Pending::MANAGE&&pending!=Pending::VERIFY_CHANNEL&&!coverageCapture&&!antennaBatch&&!antennaSampleActive)Serial.printf("Isolated delivery and coverage storage fixtures: %s\n",fieldStorageSelfTest()?"passed":"FAILED");
       else if(strcmp(command,"ANTTEST")==0&&pending!=Pending::SEND&&pending!=Pending::MANAGE&&pending!=Pending::VERIFY_CHANNEL&&!antennaBatch&&!antennaSampleActive)Serial.printf("Isolated antenna storage fixtures: %s\n",antennaStorageSelfTest()?"passed":"FAILED");
+      else if(strcmp(command,"NET?")==0)internetStatus();
+      else if(strcmp(command,"WXLOCAL")==0) localWeatherTest();
       else if(strcmp(command,"BOT?")==0)botStatus();
       else if(strcmp(command,"BOTTEST")==0&&pending==Pending::NONE&&!antennaBatch)Serial.println(botStorageSelfTest()?"Bot storage fixtures passed; no RF send":"Bot storage fixtures FAILED");
       else if(strcmp(command,"CHATPREVIEW")==0&&pending==Pending::NONE&&!antennaBatch)chatPreview();
@@ -983,6 +1006,7 @@ bool handleNetworkReply(const Reply& r) {
 #include "antenna_ui.h"
 #include "discovery_ui.h"
 #include "bot_ui.h"
+#include "internet_ui.h"
 #include "management_ui.h"
 #include "terminal_ui.h"
 #include "draft_ui.h"
@@ -1089,7 +1113,7 @@ void processReplies() {
 }
 void setup() {
   Serial.begin(115200);delay(300);
-  Serial.println("Mesh Pilot 0.17.0 / E32R28T");
+  Serial.println("Mesh Pilot 0.18.0 / E32R28T");
   pinMode(21,OUTPUT);digitalWrite(21,HIGH);
   lcd.init();lcd.setRotation(1);
   touchBus.begin(25,39,32,33);touch.begin(touchBus);touch.setRotation(1);
@@ -1098,7 +1122,7 @@ void setup() {
   ledcSetup(7,5000,8);ledcAttachPin(21,7);ledcWrite(7,brightness);lastTouchAt=millis();
   clockBase=max(uint32_t(BUILD_UNIX_TIME),uint32_t(prefs.getULong("timeLast",0)));clockAt=millis();
   fixtureMode=true;
-  bool checksPassed=protocol::selfTest()&&diagnostics::selfTest()&&text_render::selfTest()&&clock_tools::selfTest()&&send_tracking::selfTest()&&management::selfTest()&&managementUiSelfTest()&&terminal_tools::selfTest()&&terminalSelfTest()&&draft_tools::selfTest()&&scroll_tools::selfTest()&&scrollUiSelfTest()&&scrollBandSelfTest()&&discovery::selfTest()&&discoveryUiSelfTest()&&field::selfTest()&&antenna::selfTest()&&bot::selfTest()&&botUiSelfTest();
+  bool checksPassed=protocol::selfTest()&&diagnostics::selfTest()&&text_render::selfTest()&&clock_tools::selfTest()&&send_tracking::selfTest()&&management::selfTest()&&managementUiSelfTest()&&terminal_tools::selfTest()&&terminalSelfTest()&&draft_tools::selfTest()&&scroll_tools::selfTest()&&scrollUiSelfTest()&&scrollBandSelfTest()&&discovery::selfTest()&&discoveryUiSelfTest()&&field::selfTest()&&antenna::selfTest()&&bot::selfTest()&&botUiSelfTest()&&weather::selfTest()&&weatherJsonSelfTest();
   fixtureMode=false;
   if(!checksPassed){Serial.println("Boot fixtures FAILED");header("Protocol/text/send check failed");while(true)delay(1000);}
   Serial.println("Message, network, Unicode, clock, delivery, management, terminal, scrolling, nearby discovery, field, antenna and bot fixtures passed");
@@ -1123,6 +1147,7 @@ void setup() {
     }
     if(matches==1){prefs.putString("radioAddr",candidate);prefs.putUChar("radioType",candidateType);prefs.putString("radioName","Saved MeshCore radio");Serial.println("Existing radio bond and history matched for migration");}
   }
+  initInternet();
   startupReconnect=autoConnectEnabled&&prefs.getString("radioAddr","").length();
   calibrated=prefs.getBool("cal",false);
   if(calibrated) {
@@ -1142,6 +1167,7 @@ void loop() {
   tickField();
   tickAntenna();
   tickNetwork();
+  tickInternet();
   tickBot();
   pollMessages();
   bool down=touch.touched();
@@ -1152,7 +1178,8 @@ void loop() {
     TS_Point p=touch.getPoint();
     int x=lroundf(ax*p.x+bx*p.y+cx),y=lroundf(ay*p.x+by*p.y+cy);
     // Never log keypad coordinates: they would reveal the pairing PIN.
-    if(botTouch(x,y)) { /* Per-channel bot controls. */ }
+    if(internetTouch(x,y)) { /* Wi-Fi and weather. */ }
+    else if(botTouch(x,y)) { /* Per-channel bot controls. */ }
     else if(terminalTouch(x,y)) { /* Device settings. */ }
     else if(antennaTouch(x,y)) { /* Antenna comparison. */ }
     else if(fieldTouch(x,y)) { /* Dashboard, results and coverage. */ }

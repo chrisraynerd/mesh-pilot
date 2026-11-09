@@ -90,7 +90,7 @@ void reconnectReady() {
   resumeAfterReconnect=false;Serial.println("Terminal ready; radio session restored; no automatic resend");
 }
 void drawSettings() {
-  screen=Screen::SETTINGS;header("Mesh Pilot / setup");smallButton(238,4,70,26,"Bots");lcd.setTextColor(TFT_WHITE,BG);
+  screen=Screen::SETTINGS;header("Mesh Pilot / setup");smallButton(164,4,68,26,"Wi-Fi");smallButton(238,4,70,26,"Bots");lcd.setTextColor(TFT_WHITE,BG);
   String reading=!batterySupported?"Battery reading unsupported":!haveBattery?"Reading Heltec battery...":batteryMv?"Heltec battery: "+String(batteryMv/1000.0f,2)+" V":"Heltec battery: unavailable on this board";
   lcd.drawString(reading,12,44,1);
   lcd.drawString(radioStorageTotal?"Heltec storage: "+String(radioStorageUsed)+" / "+String(radioStorageTotal)+" KB":"Heltec storage: not reported",12,64,1);
@@ -102,6 +102,7 @@ void drawSettings() {
 }
 bool terminalTouch(int x,int y) {
   if(screen!=Screen::SETTINGS)return false;
+  if(x>=164&&x<=232&&y>=4&&y<=30){drawWifi();return true;}
   if(x>=238&&x<=308&&y>=4&&y<=30){drawBotChannels();return true;}
   if(y>=120&&y<=149) {
     if(x>=12&&x<=76)brightness=uint8_t(max(40,int(brightness)-43));

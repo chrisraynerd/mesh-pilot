@@ -4,22 +4,22 @@ BotChannel botChannels[40];bool botEnabled[40]={},botDrained=false,botQueued=fal
 String botRadio,botReply,botInfo;uint8_t botQueuedChannel=0;uint32_t botDue=0,botExpires=0;
 int botPage=0,botSelected=0,botCommandSelected=0;bot::Limits botLimits;
 bool writeBotSettings(const String& path){
-  FieldWriter w(path,"MPB2",40);for(const auto& c:botChannels){w.put(c.key,16);w.put(reinterpret_cast<const uint8_t*>(c.place),25);w.put(&c.flags,1);w.put(reinterpret_cast<const uint8_t*>(c.test),17);w.put(reinterpret_cast<const uint8_t*>(c.words),34);w.put(reinterpret_cast<const uint8_t*>(c.replies),202);}return w.finish();
+  FieldWriter w(path,"MPB3",40);for(const auto& c:botChannels){w.put(c.key,16);w.put(reinterpret_cast<const uint8_t*>(c.place),25);w.put(&c.flags,1);w.put(reinterpret_cast<const uint8_t*>(c.test),17);w.put(reinterpret_cast<const uint8_t*>(c.words),34);w.put(reinterpret_cast<const uint8_t*>(c.replies),202);}return w.finish();
 }
 bool readBotSettings(const String& path,BotChannel* output){
-  File f=LittleFS.open(path,"r");uint8_t magic[4]={};if(!f||f.read(magic,4)!=4){if(f)f.close();return false;}f.close();bool legacy=!memcmp(magic,"MPB1",4);
-  FieldReader r(path,legacy?"MPB1":"MPB2",40,11812);std::vector<BotChannel> loaded(40);if(r.count!=40)r.ok=false;
+  File f=LittleFS.open(path,"r");uint8_t magic[4]={};if(!f||f.read(magic,4)!=4){if(f)f.close();return false;}f.close();bool legacy=!memcmp(magic,"MPB1",4);bool latest=!memcmp(magic,"MPB3",4);
+  FieldReader r(path,legacy?"MPB1":latest?"MPB3":"MPB2",40,11812);std::vector<BotChannel> loaded(40);if(r.count!=40)r.ok=false;
   auto validText=[](const char* text,int size){if(text[size-1])return false;for(int i=0;i<size-1&&text[i];i++)if(uint8_t(text[i])<32||uint8_t(text[i])>126)return false;return true;};
   for(auto& c:loaded){r.get(c.key,16);r.get(reinterpret_cast<uint8_t*>(c.place),25);
     if(!legacy){r.get(&c.flags,1);r.get(reinterpret_cast<uint8_t*>(c.test),17);r.get(reinterpret_cast<uint8_t*>(c.words),34);r.get(reinterpret_cast<uint8_t*>(c.replies),202);}
-    if(!validText(c.place,25)||c.flags>15||!validText(c.test,17)||!bot::keyword(c.test))return false;
+    if(!validText(c.place,25)||c.flags>(latest?31:15)||!validText(c.test,17)||!bot::keyword(c.test))return false;
     for(int i=0;i<2;i++){if(!validText(c.words[i],17)||!validText(c.replies[i],101))return false;
       if(c.words[i][0]&&(!bot::keyword(c.words[i])||!strcmp(c.words[i],c.test)||(i&& !strcmp(c.words[i],c.words[0]))))r.ok=false;
       if((c.flags&(4<<i))&&(!c.words[i][0]||!c.replies[i][0]))r.ok=false;}
   }
   if(!r.finish())return false;memcpy(output,loaded.data(),sizeof(BotChannel)*40);return true;
 }
-void resetBotLink(){botDrained=false;botQueued=false;botReply="";}
+void resetBotLink(){cancelBotWeather();botDrained=false;botQueued=false;botReply="";}
 void loadBot(){
   resetBotLink();if(botRadio==activeAddress)return;
   botRadio=activeAddress;memset(botEnabled,0,sizeof(botEnabled));for(auto& c:botChannels)c=BotChannel{};
@@ -38,7 +38,9 @@ void botIncoming(const Reply& reply){
   protocol::MessageView view;if(!protocol::message(reply.data,reply.length,view)||view.direct||view.channel>=40)return;
   int slot=view.channel;if(!botEnabled[slot]||!botChannelValid(slot))return;
   bot::Trigger trigger;if(!bot::parseAny(reply.data,reply.length,trigger)||trigger.sender==wireName.c_str())return;
-  auto& config=botChannels[slot];int kind=bot::command(trigger,config.flags,config.test,config.words[0],config.words[1]);if(kind<0)return;
+  auto& config=botChannels[slot];int kind=bot::command(trigger,config.flags,config.test,config.words[0],config.words[1]);std::string weatherPlace;
+  if(kind<0&&(config.flags&16)&&weather::query(trigger.body,weatherPlace))kind=4;
+  if(kind<0)return;
   uint32_t sender=bot::hash(reinterpret_cast<const uint8_t*>(trigger.sender.data()),trigger.sender.size());
   if(!botLimits.allow(millis(),trigger.identity,sender))return;
   // Reserve before scheduling; cancelled/unconfirmed replies are never retried.
@@ -47,9 +49,10 @@ void botIncoming(const Reply& reply){
   botReply+=trigger.hops<0?"; hops unknown":trigger.hops==0?"; direct (0 hops)":"; "+String(trigger.hops)+" hop"+(trigger.hops==1?"":"s");
   botReply+=trigger.hasSnr?"; last-hop SNR "+String(trigger.snr/4.0f,2)+" dB":"; SNR unavailable";
   botReply+=". RX only.";
-  }else if(kind==1){botReply="[bot] Commands:";if(config.flags&1)botReply+=" "+String(config.test);if(config.flags&2)botReply+=" help";for(int i=0;i<2;i++)if(config.flags&(4<<i))botReply+=" "+String(config.words[i]);}
-  else botReply="[bot] "+String(config.replies[kind-2]);
-  botQueuedChannel=slot;botQueued=true;botDue=millis()+3000+(esp_random()%5001);botExpires=millis()+30000;
+  }else if(kind==1){botReply="[bot] Commands:";if(config.flags&1)botReply+=" "+String(config.test);if(config.flags&2)botReply+=" help";if(config.flags&16)botReply+=" wx";for(int i=0;i<2;i++)if(config.flags&(4<<i))botReply+=" "+String(config.words[i]);}
+  else if(kind<4)botReply="[bot] "+String(config.replies[kind-2]);
+  botQueuedChannel=slot;botQueued=true;botDue=millis()+3000+(esp_random()%5001);botExpires=millis()+(kind==4?45000:30000);
+  if(kind==4){botReply="";requestWeather(weatherPlace.empty()?String(config.place):String(weatherPlace.c_str()),true);}
   botInfo="Reply waiting for a free radio.";Serial.println("Bot trigger matched; one bounded reply scheduled");
 }
 void tickBot(){
@@ -57,8 +60,9 @@ void tickBot(){
   for(int i=0;i<40;i++)if(ready&&botEnabled[i]&&!botChannelValid(i)){botEnabled[i]=false;botInfo="Channel changed; enable bot again.";}
   if(!botQueued)return;
   if(!ready||!linkActive||!botDrained||!botEnabled[botQueuedChannel]||!botChannelValid(botQueuedChannel)||storageBlocked||terminal_tools::due(millis(),botExpires)){
-    botQueued=false;botInfo="Pending reply cancelled; no retry.";return;
+    cancelBotWeather();botQueued=false;botInfo="Pending reply cancelled; no retry.";return;
   }
+  if(botWeatherWaiting())return;
   if(!terminal_tools::due(millis(),botDue)||pending!=Pending::NONE||networkAction!=NetworkAction::NONE||remoteWaiting||nearby.active||antennaBatch||antennaSampleActive||manageAction!=ManageAction::NONE)return;
   uint32_t stamp=max(nowSeconds(),lastOutgoingTimestamp+1);
   int watch=createSendWatch(stamp,false,botQueuedChannel,nullptr,channels[botQueuedChannel],botReply,true);if(watch<0)return;
@@ -84,10 +88,10 @@ void drawBotSetup(){
   smallButton(12,177,100,28,"Back");lcd.setTextColor(botSaveFailed?TFT_ORANGE:TFT_WHITE,BG);
   lcd.drawString(botInfo.length()?botInfo.substring(0,49):"No old-message replies; no automatic retries.",12,215,1);
 }
-void stopEditedBot(){botEnabled[botSelected]=false;if(botQueuedChannel==botSelected)botQueued=false;botInfo="Saved. Enable channel bot when ready.";}
+void stopEditedBot(){cancelBotWeather();botEnabled[botSelected]=false;if(botQueuedChannel==botSelected)botQueued=false;botInfo="Saved. Enable channel bot when ready.";}
 String selectedBotKeyword(){auto& c=botChannels[botSelected];return botCommandSelected==0?String(c.test):botCommandSelected==1?String("help"):String(c.words[botCommandSelected-2]);}
 void drawBotCommands(){
-  screen=Screen::BOT_COMMANDS;header("Channel commands");auto& c=botChannels[botSelected];
+  screen=Screen::BOT_COMMANDS;header("Channel commands");smallButton(224,4,84,26,"Weather");auto& c=botChannels[botSelected];
   for(int i=0;i<4;i++){String name=i==0?String(c.test):i==1?String("help"):c.words[i-2][0]?String(c.words[i-2]):"Custom reply "+String(i-1);
     smallButton(12,42+i*32,296,28,(String(c.flags&(1<<i)?"ON  ":"OFF ")+name).c_str());}
   smallButton(12,177,100,28,"Back");lcd.setTextColor(TFT_WHITE,BG);lcd.drawString("Tap a command to change its keyword or reply.",12,215,1);
@@ -105,6 +109,7 @@ void saveBotText(const String& text,bool reply){
   if(!reply){value.toLowerCase();bool duplicate=value=="help";
     if(botCommandSelected!=0&&value==c.test)duplicate=true;
     for(int i=0;i<2;i++)if(botCommandSelected!=i+2&&c.words[i][0]&&value==c.words[i])duplicate=true;
+    if((c.flags&16)&&(value=="wx"||value=="weather"))duplicate=true;
     if(!bot::keyword(value.c_str())||duplicate){botInfo="Use a unique word: a-z, 0-9, - or _.";return;}
   }else if(!value.length()){botInfo="Reply cannot be blank.";return;}
   char* dest=reply?c.replies[botCommandSelected-2]:botCommandSelected==0?c.test:c.words[botCommandSelected-2];
@@ -124,7 +129,7 @@ bool botTouch(int x,int y){
     if(x>=12&&x<=308&&y>=42&&y<170&&(y-42)%32<28){int item=botPage*4+(y-42)/32;if(item<int(list.size())){botSelected=list[item];botInfo="";drawBotSetup();}}
     else if(y>=177&&y<=205){if(x>=12&&x<=80){botPage--;drawBotChannels();}else if(x>=84&&x<=152){botPage++;drawBotChannels();}else if(x>=228&&x<=308)drawSettings();}return true;
   }
-  if(screen==Screen::BOT_COMMANDS){if(x>=12&&x<=308&&y>=42&&y<170&&(y-42)%32<28){botCommandSelected=(y-42)/32;drawBotCommandEdit();}else if(x>=12&&x<=112&&y>=177&&y<=205)drawBotSetup();return true;}
+  if(screen==Screen::BOT_COMMANDS){if(x>=224&&x<=308&&y>=4&&y<=30){drawWeatherSettings();return true;}if(x>=12&&x<=308&&y>=42&&y<170&&(y-42)%32<28){botCommandSelected=(y-42)/32;drawBotCommandEdit();}else if(x>=12&&x<=112&&y>=177&&y<=205)drawBotSetup();return true;}
   if(screen==Screen::BOT_COMMAND_EDIT)return botCommandTouch(x,y);
   if(screen!=Screen::BOT_SETUP)return false;
   if(x>=220&&x<=308&&y>=4&&y<=30){drawBotCommands();return true;}
@@ -139,10 +144,12 @@ int activeBotCount(){int count=0;for(int i=0;i<40;i++)if(botEnabled[i]&&botChann
 void botStatus(){int count=activeBotCount();Serial.printf("Bot status: enabledChannels=%d; drained=%d; queued=%d; settingsFailed=%d; attempts=%u\n",count,botDrained,botQueued,botSaveFailed,botLimits.count);}
 bool botStorageSelfTest(){
   if(!storageReady)return false;String savedJournal=journalPath;journalPath="/fixture-bot-test.log";const String path="/fixture-bot-test.bin";std::vector<BotChannel> saved(botChannels,botChannels+40),loaded(40);
-  for(int i=0;i<40;i++){botChannels[i]=BotChannel{};strcpy(botChannels[i].words[0],"meeting");strcpy(botChannels[i].replies[0],"Meet at the agreed place");botChannels[i].flags=7;memset(botChannels[i].key,i+1,16);snprintf(botChannels[i].place,25,"Fixture %d",i);}
+  for(int i=0;i<40;i++){botChannels[i]=BotChannel{};strcpy(botChannels[i].words[0],"meeting");strcpy(botChannels[i].replies[0],"Meet at the agreed place");botChannels[i].flags=23;memset(botChannels[i].key,i+1,16);snprintf(botChannels[i].place,25,"Fixture %d",i);}
   bool ok=writeBotSettings(path)&&readBotSettings(path,loaded.data())&&!memcmp(loaded.data(),botChannels,sizeof(botChannels));
   File f=LittleFS.open(path,"r+");if(f){f.seek(12);f.write(uint8_t(0xff));f.close();}else ok=false;
   ok=ok&&!readBotSettings(path,loaded.data());
+  FieldWriter v2(path,"MPB2",40);for(const auto& c:botChannels){uint8_t flags=7;v2.put(c.key,16);v2.put(reinterpret_cast<const uint8_t*>(c.place),25);v2.put(&flags,1);v2.put(reinterpret_cast<const uint8_t*>(c.test),17);v2.put(reinterpret_cast<const uint8_t*>(c.words),34);v2.put(reinterpret_cast<const uint8_t*>(c.replies),202);}
+  ok=v2.finish()&&ok;ok=readBotSettings(path,loaded.data())&&ok;for(const auto& c:loaded)ok=ok&&c.flags==7&&!strcmp(c.words[0],"meeting");
   FieldWriter legacy(path,"MPB1",40);for(const auto& c:botChannels){legacy.put(c.key,16);legacy.put(reinterpret_cast<const uint8_t*>(c.place),25);}
   ok=legacy.finish()&&ok;ok=readBotSettings(path,loaded.data())&&ok;
   for(const auto& c:loaded)ok=ok&&c.flags==3&&!strcmp(c.test,"test")&&!c.words[0][0]&&!c.replies[0][0];

@@ -16,3 +16,8 @@ The application implements the MeshCore companion protocol independently.
 Protocol/reference source: https://github.com/meshcore-dev/MeshCore.
 No WADAMESH source is used. Mesh Pilot is an independent project and is not an
 official MeshCore product.
+
+- ArduinoJson 6.21.5: https://github.com/bblanchon/ArduinoJson (MIT).
+- ISRG Root X1 certificate from https://letsencrypt.org/certs/isrgrootx1.pem,
+  embedded for weather HTTPS verification.
+- Weather data: Open-Meteo, https://open-meteo.com/ (attribution in replies).

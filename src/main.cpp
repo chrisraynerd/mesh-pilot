@@ -91,6 +91,7 @@ bool terminalSelfTest();
 NimBLEClient* client = nullptr;
 NimBLERemoteCharacteristic* commandChar = nullptr;
 struct Reply { uint8_t code; uint16_t length; uint8_t data[256]; };
+struct RadioPacket {uint16_t length;uint8_t code;};
 QueueHandle_t replies;
 uint8_t waitingFor = 0;
 uint32_t replyDeadline = 0;
@@ -190,6 +191,14 @@ bool botWeatherWaiting();
 void internetStatus();
 void localWeatherTest();
 bool weatherJsonSelfTest();
+bool contactsParked=false,contactsRefreshAfterWeather=false;
+uint32_t contactRevision=0;
+bool parkWeatherContacts();
+void restoreWeatherContacts();
+bool weatherContactSelfTest();
+bool weatherBusyForDiagnostics();
+Reply parkedAdverts[4];uint8_t parkedAdvertCount=0;
+void replayParkedAdverts();
 uint8_t credentialSymbols=0;
 void chatPreview();
 std::vector<antenna::Session> antennaSessions;
@@ -464,11 +473,27 @@ void failLink(const char* detail,bool retry=true) {
   linkScreen("Radio disconnected",detail);
   if(retry)scheduleReconnect();else cancelReconnect();
 }
+void clearReplies(){if(!replies)return;RadioPacket* packet=nullptr;while(xQueueReceive(replies,&packet,0)==pdTRUE)free(packet);}
+bool popReply(Reply& reply){RadioPacket* packet=nullptr;if(!replies||xQueueReceive(replies,&packet,0)!=pdTRUE)return false;reply=Reply{};reply.code=packet->code;reply.length=packet->length;memcpy(reply.data,reinterpret_cast<uint8_t*>(packet+1),packet->length);free(packet);return true;}
 void notifyRadio(NimBLERemoteCharacteristic*,uint8_t* data,size_t length,bool) {
-  if(!length) return;
-  if(length>256) return;
-  Reply reply{};reply.code=data[0];reply.length=length;memcpy(reply.data,data,length);
-  if(xQueueSend(replies,&reply,0)!=pdTRUE&&(data[0]<0x80||data[0]==0x82||data[0]==0x87||data[0]==0x8d||data[0]==0x8e))replyOverflow.store(true);
+  if(!length||length>256||!replies)return;
+  bool critical=data[0]<0x80||data[0]==0x82||data[0]==0x87||data[0]==0x8d||data[0]==0x8e;
+  RadioPacket* packet=static_cast<RadioPacket*>(malloc(sizeof(RadioPacket)+length));
+  if(!packet){if(critical)replyOverflow.store(true);return;}
+  packet->code=data[0];packet->length=length;memcpy(reinterpret_cast<uint8_t*>(packet+1),data,length);
+  if(xQueueSend(replies,&packet,0)!=pdTRUE){free(packet);if(critical)replyOverflow.store(true);}
+}
+bool replyQueueSelfTest(){
+  QueueHandle_t original=replies;bool overflow=replyOverflow.load();size_t before=ESP.getFreeHeap();replies=xQueueCreate(2,sizeof(RadioPacket*));if(!replies){replies=original;return false;}
+  bool ok=true;uint8_t a[256],b[256];Reply got{};
+  for(int cycle=0;cycle<64;cycle++){
+    for(int i=0;i<256;i++){a[i]=i^cycle;b[i]=(255-i)^cycle;}a[0]=b[0]=17;int n=1+cycle*4;
+    notifyRadio(nullptr,a,n,false);notifyRadio(nullptr,b,256,false);notifyRadio(nullptr,a,n,false);ok=ok&&replyOverflow.exchange(false);
+    ok=popReply(got)&&got.length==n&&!memcmp(got.data,a,n)&&ok;ok=popReply(got)&&got.length==256&&!memcmp(got.data,b,256)&&ok;
+    ok=ok&&!popReply(got);
+    notifyRadio(nullptr,a,n,false);notifyRadio(nullptr,b,256,false);clearReplies();ok=ok&&!popReply(got);
+  }
+  clearReplies();vQueueDelete(replies);replies=original;replyOverflow.store(overflow);return ok&&ESP.getFreeHeap()==before;
 }
 void connectRadio(bool automatic) {
   resetBotLink();
@@ -495,12 +520,12 @@ void connectRadio(bool automatic) {
   NimBLEDevice::setSecurityAuth(true,pinText.length()!=0,true);
   pinText="";
   linkScreen("Connecting...","Please wait for the radio.");
-  xQueueReset(replies);
+  clearReplies();
   antennaBatch=false;antennaSampleActive=false;antennaRunningId=0;
   ready=false;pending=Pending::NONE;haveBattery=false;batteryWanted=true;
   memset(channelKeys,0,sizeof(channelKeys));memset(haveChannelKey,0,sizeof(haveChannelKey));haveSelfKey=false;wireName="";
   for(auto& s:sends)s.active=false;pendingSend=-1;latestSend=-1;
-  contacts.clear();contactsLoaded=false;nodeSelected=-1;nodePage=0;contactsTruncated=false;contactSearch="";manageAction=ManageAction::NONE;
+  contactRevision++;contacts.clear();contactsLoaded=false;nodeSelected=-1;nodePage=0;contactsTruncated=false;contactSearch="";manageAction=ManageAction::NONE;
   fieldScanState=0;haveFieldProof=false;fieldProofTarget="";coverageCapture=false;coverageActiveId=0;
   nearby.active=false;nearby.count=0;discoveryInfo="Tap Scan to check for nearby repeaters.";
   networkAction=NetworkAction::NONE;remoteWaiting=false;haveProbeTarget=false;networkResult="No remote test yet";
@@ -565,6 +590,7 @@ void tickClock() {
       else if(strcmp(command,"FIELDTEST")==0&&pending!=Pending::SEND&&pending!=Pending::MANAGE&&pending!=Pending::VERIFY_CHANNEL&&!coverageCapture&&!antennaBatch&&!antennaSampleActive)Serial.printf("Isolated delivery and coverage storage fixtures: %s\n",fieldStorageSelfTest()?"passed":"FAILED");
       else if(strcmp(command,"ANTTEST")==0&&pending!=Pending::SEND&&pending!=Pending::MANAGE&&pending!=Pending::VERIFY_CHANNEL&&!antennaBatch&&!antennaSampleActive)Serial.printf("Isolated antenna storage fixtures: %s\n",antennaStorageSelfTest()?"passed":"FAILED");
       else if(strcmp(command,"NET?")==0)internetStatus();
+      else if(strcmp(command,"WXSTORETEST")==0&&pending==Pending::NONE&&!weatherBusyForDiagnostics())Serial.println(weatherContactSelfTest()?"Weather contact fixtures passed; no RF send":"Weather contact fixtures FAILED");
       else if(strcmp(command,"WXLOCAL")==0) localWeatherTest();
       else if(strcmp(command,"BOT?")==0)botStatus();
       else if(strcmp(command,"BOTTEST")==0&&pending==Pending::NONE&&!antennaBatch)Serial.println(botStorageSelfTest()?"Bot storage fixtures passed; no RF send":"Bot storage fixtures FAILED");
@@ -772,7 +798,7 @@ void drawContactList(bool nodes) {
     smallButton(12,42+row*32,296,28,label.substring(0,29).c_str());
     lcd.setTextColor(c.seen?TFT_GREEN:0x5C7F,PANEL);lcd.drawString(c.type==1?"P":c.type==2?"R":c.type==3?"G":c.type==4?"S":"?",295,50+row*32,1);
   }
-  if(list.empty()){lcd.setTextColor(TFT_WHITE,BG);lcd.drawString(contactsLoaded?"No matches. Change filter or search.":"Loading the Heltec's saved contacts...",12,60,1);}
+  if(list.empty()){lcd.setTextColor(TFT_WHITE,BG);lcd.drawString(contactsParked?"Weather lookup: contacts return shortly.":contactsLoaded?"No matches. Change filter or search.":"Loading the Heltec's saved contacts...",12,60,1);}
   smallButton(12,177,56,28,"Prev");smallButton(72,177,56,28,"Next");smallButton(132,177,80,28,"Load");smallButton(216,177,92,28,"Back");
   lcd.setTextColor(TFT_WHITE,BG);
   String info=String(list.size())+" shown / "+String(contacts.size())+" known; "+String(page+1)+"/"+String(max(1,int((list.size()+3)/4)));
@@ -889,6 +915,7 @@ void drawNode() {
   lcd.setTextColor(TFT_WHITE,BG);lcd.drawString("Saved details do not mean the node is online.",12,217,1);
 }
 void upsertContact(const Reply& r,bool live) {
+  if(contactsParked){if(live&&parkedAdvertCount<4)parkedAdverts[parkedAdvertCount++]=r;else contactsRefreshAfterWeather=true;return;}
   diagnostics::Contact c{};if(!diagnostics::contact(r.data,r.length,c))return;c.saved=!live;
   for(auto& old:contacts)if(memcmp(old.key,c.key,32)==0) {
     c.seen=live||old.seen;c.seenAt=live?millis():old.seenAt;c.saved=!live||old.saved;old=c;return;
@@ -907,6 +934,7 @@ void requestStats() {
   statsStep=0;networkAction=NetworkAction::STATS;networkInfo="Reading local radio counters...";refreshNetwork();
 }
 void requestContacts(bool forDirect) {
+  if(contactsParked){networkInfo="Weather lookup running; try Load shortly";refreshNetwork();return;}
   if(networkBusy()){refreshNetwork();return;}
   contactsForDirect=forDirect;
   nodeSelected=-1;networkAction=NetworkAction::CONTACTS;networkInfo="Loading cached contacts...";refreshNetwork();
@@ -932,7 +960,7 @@ void tickNetwork() {
     uint8_t q[]={0x38,statsStep};
     if(!sendCommand(q,2,Pending::STATS)){networkInfo="Could not request stats";refreshNetwork();}
   } else if(action==NetworkAction::CONTACTS) {
-    contacts.clear();nodePage=0;contactsTruncated=false;uint8_t q=4;
+    if(contactsParked){contactsRefreshAfterWeather=true;return;}contactRevision++;contacts.clear();nodePage=0;contactsTruncated=false;uint8_t q=4;
     if(!sendCommand(&q,1,Pending::CONTACTS)){networkInfo="Could not read contacts";refreshNetwork();}
   } else if(haveProbeTarget) {
     remotePath=action==NetworkAction::PATH;
@@ -945,6 +973,7 @@ void tickNetwork() {
   }
 }
 bool handleNetworkReply(const Reply& r) {
+  if(contactsParked&&(r.code==0x8f||r.code==0x81||r.code==0x90)){contactsRefreshAfterWeather=true;return true;}
   if(r.code==0x8f&&r.length>=33) {
     for(size_t i=0;i<contacts.size();i++)if(!memcmp(contacts[i].key,r.data+1,32)) {
       contacts.erase(contacts.begin()+i);if(nodeSelected==int(i))nodeSelected=-1;else if(nodeSelected>int(i))nodeSelected--;break;
@@ -1021,7 +1050,7 @@ void processReplies() {
     failLink("Radio disconnected. Draft kept.");return;
   }
   Reply r;
-  while(xQueueReceive(replies,&r,0)==pdTRUE) {
+  while(popReply(r)) {
     Serial.printf("Companion reply 0x%02x (%u bytes)\n",r.code,r.length);
     if(!linkActive)continue;
     if(r.code==0x83) { lastPoll=millis()-3000;continue; }
@@ -1113,7 +1142,7 @@ void processReplies() {
 }
 void setup() {
   Serial.begin(115200);delay(300);
-  Serial.println("Mesh Pilot 0.18.0 / E32R28T");
+  Serial.println("Mesh Pilot 0.18.1 / E32R28T");
   pinMode(21,OUTPUT);digitalWrite(21,HIGH);
   lcd.init();lcd.setRotation(1);
   touchBus.begin(25,39,32,33);touch.begin(touchBus);touch.setRotation(1);
@@ -1122,7 +1151,7 @@ void setup() {
   ledcSetup(7,5000,8);ledcAttachPin(21,7);ledcWrite(7,brightness);lastTouchAt=millis();
   clockBase=max(uint32_t(BUILD_UNIX_TIME),uint32_t(prefs.getULong("timeLast",0)));clockAt=millis();
   fixtureMode=true;
-  bool checksPassed=protocol::selfTest()&&diagnostics::selfTest()&&text_render::selfTest()&&clock_tools::selfTest()&&send_tracking::selfTest()&&management::selfTest()&&managementUiSelfTest()&&terminal_tools::selfTest()&&terminalSelfTest()&&draft_tools::selfTest()&&scroll_tools::selfTest()&&scrollUiSelfTest()&&scrollBandSelfTest()&&discovery::selfTest()&&discoveryUiSelfTest()&&field::selfTest()&&antenna::selfTest()&&bot::selfTest()&&botUiSelfTest()&&weather::selfTest()&&weatherJsonSelfTest();
+  bool checksPassed=protocol::selfTest()&&diagnostics::selfTest()&&text_render::selfTest()&&clock_tools::selfTest()&&send_tracking::selfTest()&&management::selfTest()&&managementUiSelfTest()&&terminal_tools::selfTest()&&terminalSelfTest()&&draft_tools::selfTest()&&scroll_tools::selfTest()&&scrollUiSelfTest()&&scrollBandSelfTest()&&discovery::selfTest()&&discoveryUiSelfTest()&&field::selfTest()&&antenna::selfTest()&&bot::selfTest()&&botUiSelfTest()&&weather::selfTest()&&weatherJsonSelfTest()&&replyQueueSelfTest();
   fixtureMode=false;
   if(!checksPassed){Serial.println("Boot fixtures FAILED");header("Protocol/text/send check failed");while(true)delay(1000);}
   Serial.println("Message, network, Unicode, clock, delivery, management, terminal, scrolling, nearby discovery, field, antenna and bot fixtures passed");
@@ -1132,7 +1161,7 @@ void setup() {
   Serial.printf("History storage: %s\n",storageReady?"ready":"unavailable");
   NimBLEDevice::init("Mesh Pilot");
   NimBLEDevice::setMTU(247);
-  replies=xQueueCreate(64,sizeof(Reply));
+  replies=xQueueCreate(64,sizeof(RadioPacket*));
   client=NimBLEDevice::createClient();
   client->setClientCallbacks(&clientCallbacks,false);
   client->setConnectTimeout(10);

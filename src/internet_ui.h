@@ -32,7 +32,7 @@ bool parseWeather(const String& body,weather::Data& data,uint32_t now){
   return weather::valid(data)&&data.epoch<=now+1800&&now<=data.epoch+5400;
 }
 bool weatherHttp(const String& url,String& body,char* error){
-  WiFiClientSecure secure;secure.setCACert(WEATHER_CA);secure.setHandshakeTimeout(6);secure.setTimeout(3);
+  WiFiClientSecure secure;secure.setCACert(url.startsWith("https://geocoding-api.open-meteo.com/")?WEATHER_CA_YR:WEATHER_CA_YE);secure.setHandshakeTimeout(6);secure.setTimeout(3);
   HTTPClient http;http.useHTTP10(true);http.setReuse(false);http.setConnectTimeout(4000);http.setTimeout(3000);
   if(!http.begin(secure,url)){strcpy(error,"Secure weather setup failed");return false;}
   int status=http.GET();if(status!=200){strcpy(error,status<0?"Secure weather connection failed":"Weather service unavailable");http.end();return false;}
@@ -61,10 +61,51 @@ int cachedWeather(const char* query,uint32_t maxAge){for(int i=0;i<4;i++)if(weat
 String cachedReply(int index){auto& data=weatherCache[index].data;return String(weather::render(data,(nowSeconds()-data.epoch)/60,true).c_str());}
 void deliverWeather(const String& message,bool forBot){
   if(forBot){weatherWaiting=false;if(botQueued)botReply="[bot] "+message;}
-  else {localWeatherInfo=message;if(screen==Screen::WEATHER_RESULT){header("Weather check / no radio send");wrapped(localWeatherInfo,12,45,11);smallButton(12,177,100,28,"Back");}}
+  else {Serial.printf("Local weather check: %s\n",message.c_str());localWeatherInfo=message;if(screen==Screen::WEATHER_RESULT){header("Weather check / no radio send");wrapped(localWeatherInfo,12,45,11);smallButton(12,177,100,28,"Back");}}
 }
 void cancelBotWeather(){if(weatherWaiting){weatherToken++;weatherWaiting=false;botQueued=false;}}
 bool botWeatherWaiting(){return weatherWaiting;}
+String parkedContactRadio;uint32_t parkedContactRevision=0;
+static const char* CONTACT_SWAP="/weather-contacts.bin";
+bool weatherBusyForDiagnostics(){return weatherBusy||contactsParked;}
+bool writeWeatherContacts(const String& path){
+  FieldWriter writer(path,"MPK1",0);uint8_t count[2]={uint8_t(contacts.size()),uint8_t(contacts.size()>>8)};writer.put(count,2);
+  for(const auto& c:contacts){uint8_t bytes[155]={};diagnostics::encodeContact(c,bytes);bytes[148]=(c.saved?1:0)|(c.seen?2:0)|(c.routeStale?4:0);protocol::write32(bytes+149,c.seenAt);bytes[153]=c.length;bytes[154]=c.length>>8;writer.put(bytes,sizeof(bytes));}
+  return writer.finish();
+}
+bool readWeatherContacts(const String& path,std::deque<diagnostics::Contact>& output){
+  FieldReader reader(path,"MPK1",0,39694);uint8_t size[2]={};reader.get(size,2);unsigned count=size[0]|(size[1]<<8);if(count>256)return false;
+  // Restore straight into the empty container, avoiding a second full list.
+  for(unsigned i=0;reader.ok&&i<count;i++){uint8_t bytes[155]={};reader.get(bytes,sizeof(bytes));diagnostics::Contact c{};unsigned length=bytes[153]|(bytes[154]<<8);
+    if(!reader.ok||bytes[148]>7||length<136||length>148||!diagnostics::contact(bytes,length,c))return false;
+    c.saved=bytes[148]&1;c.seen=bytes[148]&2;c.routeStale=bytes[148]&4;c.seenAt=protocol::read32(bytes+149);output.push_back(c);}
+  return reader.finish();
+}
+bool parkWeatherContacts(){
+  if(contactsParked||!ready||!contactsLoaded||pending==Pending::CONTACTS||networkAction==NetworkAction::CONTACTS)return false;
+  if(!writeWeatherContacts(CONTACT_SWAP))return false;
+  parkedContactRadio=activeAddress;parkedContactRevision=contactRevision;contactsParked=true;contactsRefreshAfterWeather=false;parkedAdvertCount=0;
+  contacts.clear();return true;
+}
+void replayParkedAdverts(){for(int i=0;i<parkedAdvertCount;i++)upsertContact(parkedAdverts[i],true);parkedAdvertCount=0;}
+void restoreWeatherContacts(){
+  if(!contactsParked)return;bool same=activeAddress==parkedContactRadio&&contactRevision==parkedContactRevision;
+  bool ok=false;if(same){contacts.clear();ok=readWeatherContacts(CONTACT_SWAP,contacts);if(!ok)contacts.clear();}
+  contactsParked=false;
+  if(same&&ok)replayParkedAdverts();else parkedAdvertCount=0;
+  if(!same||!ok||contactsRefreshAfterWeather){contactsLoaded=false;for(auto& c:contacts)c.routeStale=true;if(ready)requestContacts();}
+  contactsRefreshAfterWeather=false;
+  if(LittleFS.exists(CONTACT_SWAP))LittleFS.remove(CONTACT_SWAP);
+  if(screen==Screen::DIRECT_PICK||screen==Screen::NODES||screen==Screen::NODE)refreshNetwork();
+}
+bool weatherContactSelfTest(){
+  if(!storageReady||!ready||pending!=Pending::NONE||weatherBusy||contactsParked)return false;
+  const String path="/fixture-weather-contacts.bin";bool ok=writeWeatherContacts(path);unsigned count=contacts.size();uint32_t check=2166136261u;
+  auto hashContact=[](uint32_t hash,const diagnostics::Contact& c){uint8_t b[155]={};diagnostics::encodeContact(c,b);b[148]=(c.saved?1:0)|(c.seen?2:0)|(c.routeStale?4:0);protocol::write32(b+149,c.seenAt);b[153]=c.length;b[154]=c.length>>8;return bot::hash(b,155,hash);};
+  for(const auto& c:contacts)check=hashContact(check,c);
+  if(!ok)return false;contacts.clear();ok=readWeatherContacts(path,contacts);uint32_t restored=2166136261u;for(const auto& c:contacts)restored=hashContact(restored,c);ok=ok&&contacts.size()==count&&restored==check;
+  if(!ok){contacts.clear();contactsLoaded=false;requestContacts();}LittleFS.remove(path);return ok;
+}
 bool requestWeather(const String& input,bool forBot){
   std::string place=weather::normalize(input.c_str());
   if(!weather::location(place)){deliverWeather("Use a UK place name, up to 32 characters.",forBot);return false;}
@@ -73,23 +114,27 @@ bool requestWeather(const String& input,bool forBot){
   if(!wifiEnabled||WiFi.status()!=WL_CONNECTED)error="Internet unavailable";
   else if(!clockTrusted)error="Set the clock before secure weather lookup";
   else if(weatherBusy)error="Weather lookup busy; try later";
-  else if(ESP.getFreeHeap()<52000||heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)<26000)error="Weather unavailable: low memory";
+
   if(error.length()){cached=cachedWeather(place.c_str(),21600000);deliverWeather(cached>=0?cachedReply(cached):error,forBot);return false;}
+  if(!parkWeatherContacts()){deliverWeather("Wait for contacts to load, or check storage",forBot);return false;}
+  Serial.printf("Weather working memory: heap=%u; largest=%u\n",ESP.getFreeHeap(),unsigned(heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)));
+  if(ESP.getFreeHeap()<60000||heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)<18000){restoreWeatherContacts();deliverWeather("Weather unavailable: low memory",forBot);return false;}
   if(!weatherResults)weatherResults=xQueueCreate(1,sizeof(WeatherResult));
-  WeatherJob* job=new(std::nothrow) WeatherJob{};if(!job||!weatherResults){delete job;deliverWeather("Weather unavailable: low memory",forBot);return false;}
+  WeatherJob* job=new(std::nothrow) WeatherJob{};if(!job||!weatherResults){delete job;restoreWeatherContacts();deliverWeather("Weather unavailable: low memory",forBot);return false;}
   timeval clock={time_t(nowSeconds()),0};settimeofday(&clock,nullptr);
   strcpy(job->place,place.c_str());job->token=++weatherToken;job->epoch=nowSeconds();job->forBot=forBot;
   if(!forBot)localWeatherToken=job->token;weatherWaiting=forBot;weatherBusy=true;
-  if(xTaskCreate(weatherWorker,"weather",12288,job,1,nullptr)!=pdPASS){delete job;weatherBusy=false;weatherWaiting=false;deliverWeather("Weather unavailable: low memory",forBot);return false;}
+  if(xTaskCreate(weatherWorker,"weather",8192,job,1,nullptr)!=pdPASS){delete job;weatherBusy=false;weatherWaiting=false;restoreWeatherContacts();deliverWeather("Weather unavailable: low memory",forBot);return false;}
   return true;
 }
 void initInternet(){wifiName=prefs.isKey("wifiSsid")?prefs.getString("wifiSsid"):String("");wifiPassword=prefs.isKey("wifiPass")?prefs.getString("wifiPass"):String("");wifiEnabled=prefs.getBool("wifiOn",false);}
 void tickInternet(){
   if(fixtureMode)return;
-  if(wifiEnabled&&ready&&!wifiStarted){WiFi.persistent(false);WiFi.mode(WIFI_STA);WiFi.setAutoReconnect(true);WiFi.begin(wifiName.c_str(),wifiPassword.c_str());wifiStarted=true;wifiAttemptAt=millis();}
+  if(wifiEnabled&&ready&&contactsLoaded&&!wifiStarted){WiFi.persistent(false);WiFi.mode(WIFI_STA);WiFi.setAutoReconnect(true);WiFi.begin(wifiName.c_str(),wifiPassword.c_str());wifiStarted=true;wifiAttemptAt=millis();}
+  if(wifiEnabled&&wifiStarted&&WiFi.status()!=WL_CONNECTED&&!weatherBusy&&millis()-wifiAttemptAt>=30000){WiFi.reconnect();wifiAttemptAt=millis();}
   WeatherResult result{};
   if(weatherResults&&xQueueReceive(weatherResults,&result,0)==pdTRUE){
-    weatherBusy=false;
+    weatherBusy=false;restoreWeatherContacts();
     if(result.ok){auto& slot=weatherCache[weatherCacheNext++%4];slot.data=result.data;slot.at=millis();slot.used=true;}
     bool relevant=result.forBot?weatherWaiting&&botQueued&&result.token==weatherToken:result.token==localWeatherToken;
     if(relevant){String reply=result.ok?String(weather::render(result.data).c_str()):String(result.error);if(!result.ok){int cached=cachedWeather(result.data.query,21600000);if(cached>=0)reply=cachedReply(cached);}deliverWeather(reply,result.forBot);}
@@ -129,7 +174,7 @@ bool internetTouch(int x,int y){
     else if(x>=160&&x<=308){wifiEnabled=false;prefs.putBool("wifiOn",false);WiFi.disconnect(true);wifiStarted=false;cancelBotWeather();internetInfo="Wi-Fi off; details kept.";}drawWifi();
   }else if(y>=177&&y<=205){if(x>=12&&x<=92)drawSettings();else if(x>=98&&x<=232)localWeatherTest();else if(x>=238&&x<=308){wifiEnabled=false;wifiStarted=false;WiFi.disconnect(true);prefs.remove("wifiSsid");prefs.remove("wifiPass");prefs.remove("wifiOn");wifiName=wifiPassword="";cancelBotWeather();internetInfo="Wi-Fi details forgotten.";drawWifi();}}return true;
 }
-void internetStatus(){Serial.printf("Internet status: enabled=%d; connected=%d; worker=%d; pendingBot=%d; heap=%u; largest=%u\n",wifiEnabled,WiFi.status()==WL_CONNECTED,weatherBusy,weatherWaiting,ESP.getFreeHeap(),unsigned(heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)));}
+void internetStatus(){Serial.printf("Internet status: enabled=%d; connected=%d; worker=%d; parked=%d; pendingBot=%d; heap=%u; largest=%u\n",wifiEnabled,WiFi.status()==WL_CONNECTED,weatherBusy,contactsParked,weatherWaiting,ESP.getFreeHeap(),unsigned(heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)));}
 bool weatherJsonSelfTest(){
   float lat=0,lon=0;char name[25]={};
   bool ok=parseGeocoding("{\"results\":[{\"name\":\"Ramsbottom\",\"country_code\":\"GB\",\"latitude\":53.6,\"longitude\":-2.3}]}","ramsbottom",lat,lon,name)&&!strcmp(name,"Ramsbottom");

@@ -22,6 +22,7 @@ std::vector<int> filteredContacts(bool nodes) {
   });return list;
 }
 bool managementIdle() {
+  if(contactsParked){managementInfo="Weather lookup running; try again shortly";return false;}
   if(!ready||!linkActive||pending!=Pending::NONE||networkAction!=NetworkAction::NONE||remoteWaiting) {
     managementInfo="Radio busy; please try again shortly";return false;
   }return true;

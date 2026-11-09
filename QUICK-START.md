@@ -124,3 +124,8 @@ Open-Meteo model data. Cached replies say **CACHED** with their age; otherwise a
 unavailable message explains why a lookup failed. Weather needs Wi-Fi internet;
 normal mesh messages and offline commands continue without it. **Turn Wi-Fi off**
 keeps credentials; **Forget** removes them. Full CYD restarts turn channel bots off.
+
+Wi-Fi details are retained through app-only updates. A missed connection retries
+in the background. On this CYD, contacts briefly move to local storage during an
+uncached secure weather request, then return automatically. Contact browsing and
+editing pause during that lookup; messaging continues.

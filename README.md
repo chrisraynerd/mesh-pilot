@@ -2,7 +2,7 @@
 
 An independent, open-source, phone-free MeshCore terminal for ESP32 touchscreens.
 
-Current development version: **0.18.0**.
+Current development version: **0.18.1**.
 Start with [the short user guide](QUICK-START.md).
 Public source: https://github.com/chrisraynerd/mesh-pilot
 Licence: MIT; dependency notices are listed in THIRD_PARTY.md.
@@ -715,7 +715,7 @@ The geographic search is restricted to GB. Sources:
 https://open-meteo.com/en/docs and https://open-meteo.com/en/docs/geocoding-api.
 API usage is subject to the provider's terms, including its non-commercial tier.
 
-HTTPS checks hostnames and certificate chains against embedded ISRG Root X1.
+HTTPS checks hostnames and certificate chains against the current provider roots, ISRG Root YE and Root YR.
 It requires the terminal's trusted clock; certificate checks are never disabled.
 The worker checks numeric types, units, bounds and source age (at most 90 minutes
 old, allowing up to 30 minutes ahead for clock/model timing). Two fixed HTTPS
@@ -759,3 +759,48 @@ block with Wi-Fi off. Storage checks passed for current bot settings and both
 older formats. Actual CYD Wi-Fi/HTTPS operation remains pending entry of the
 owner's Wi-Fi details. Provider endpoints were also checked from the development
 computer, which does not establish CYD network or BLE-coexistence success.
+
+## Weather memory correction (0.18.1)
+
+Wi-Fi settings remain in NVS across app-only uploads; no update erases or resets
+those preferences. Wi-Fi startup now waits for the initial contact load and
+retries a disconnected saved network every 30 seconds. TLS verification retains
+hostname/date/chain checks and includes the provider's current ISRG roots from
+https://letsencrypt.org/certificates/.
+
+The 256-contact list and secure HTTP buffers cannot fit in RAM simultaneously
+on this non-PSRAM CYD. For an uncached lookup the main loop writes a bounded,
+checksummed, atomic temporary contact snapshot to local storage before releasing
+its RAM. The list is restored on success or failure. A radio/reload generation
+check prevents restoring old contacts into a new session. A failed snapshot stops
+the lookup before contacts are cleared. A restart reloads contacts from the radio;
+Wi-Fi credentials, messages, drafts and channel settings remain separate.
+
+Contact browsing, edits and reloads pause during that request. Normal reception,
+chat and drafts continue. Up to four new adverts are queued for replay; excess
+adverts or route/deletion updates trigger an authoritative contact refresh.
+Cached weather avoids this contact staging step. A round-trip fixture checks
+all 256 contact frames and local flags; `WXSTORETEST` invokes it without RF sends.
+
+Bluetooth notifications now queue pointers to owned, length-sized packets instead
+of reserving 64 complete 260-byte frames. Capacity remains 64 notifications;
+critical allocation/queue failures still force the existing reconnect path.
+Packets are freed after dequeue, on rejection and when reconnect clears a queue.
+Boot fixtures exercise FIFO contents, 1–256-byte frames, overflow, clearing and
+heap recovery over repeated cycles. This releases roughly 16 KB while idle and
+provides the contiguous memory required by the TLS buffers.
+
+### 0.18.1 live verification
+
+The final app (1,482,480 bytes; SHA-256
+`0d76e6772b9cfcb55d42927b6e46b3fbd5a1abddb44656ea15f850f47a8b0d8a`)
+was installed with verified flash hashes. Startup checks passed, saved Wi-Fi
+reconnected without re-entering credentials, and the Heltec remained connected.
+A real uncached Ramsbottom lookup completed with certificate verification enabled;
+all 256 contacts were restored afterward. Working heap before the request was
+91,120 bytes after parking contacts; the worker's minimum free stack was 2,032
+bytes. After completion the device reported 48,240 bytes free heap and a
+30,708-byte largest block. A repeat local check returned a correctly age-labelled
+cached result, with all contacts present and both connections retained. The owner
+confirmed weather was visible. A weather response over the mesh and extended
+coexistence testing remain to be checked by the owner.

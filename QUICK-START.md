@@ -87,9 +87,9 @@ mix of capitals in that channel can trigger a reception report. Replies give
 your location label, received hop count and last-hop signal-to-noise ratio when
 available. No reply is sent for old messages loaded after reconnecting.
 
-The bot waits a few seconds and is limited to six reply attempts per hour across
-all channels, one per minute and one per sender name every five minutes. It does
-not retry. See **Net > Sent** for outcomes. Your draft is kept separate. Turn it
+The channel's **Reply interval** defaults to 30 seconds and can be changed to
+Off, 5, 10, 15, 30 or 60 seconds. There are no per-sender or hourly limits. It does
+not retry uncertain sends. See **Net > Sent** for outcomes. Your draft is kept separate. Turn it
 off on the same channel screen; full screen-device restarts turn all bots off.
 The location labels are remembered. A bot reply confirms this device received
 the trigger, not that every node or person received it.
@@ -99,25 +99,26 @@ the trigger, not that every node or person received it.
 Open **Setup > Bots > channel > Commands**. Choose **Custom reply 1** or **2**,
 set its **Keyword**, tap **Edit reply** and write the answer, then turn the
 command **ON**. For example, `meeting` can reply with your agreed meeting place.
-Back on the channel bot screen, turn that channel's bot **ON** too. Configuration
-changes stop the channel bot so you can review before enabling it.
+Back on the channel bot screen, turn that channel's bot **ON** too. Keyword,
+reply and command-switch changes stop the channel bot for review. Changing only
+the reply interval leaves an enabled bot running.
 
 The reception-report keyword is editable, while `help` lists enabled commands.
 Keywords match a whole message in any mix of capitals; `meeting please` does not
-match `meeting`. Existing cooldowns also apply to these commands. Wi-Fi/weather
-is planned as the next stage and is not part of this offline update.
+match `meeting`. The selected channel reply interval applies to every command.
+Weather is configured separately as described below.
 
 ### Internet weather
 
 1. Open **Setup > Wi-Fi**, enter your **2.4 GHz** network name and password, then
    **Save + connect**. Passwords stay hidden; **123**, then **More**, offers extra
-   symbols. Wait for “Wi-Fi connected”.
+   symbols. Wait for â€œWi-Fi connectedâ€.
 2. Tap **Check weather** for a local Ramsbottom/default-location lookup. This
    check sends no mesh message.
 3. Open **Setup > Bots > channel > Commands > Weather** and enable weather there.
    Return to that channel's bot setup and enable the bot too.
 4. Another radio can send `wx Ramsbottom`, `weather Ramsbottom`, or just `wx`
-   for that channel's saved location. The same sender cooldown is five minutes.
+   for that channel's saved location. The selected channel reply interval applies.
 
 Weather supports UK places, uses Celsius/mph and shows UTC source time. It is
 Open-Meteo model data. Cached replies say **CACHED** with their age; otherwise an
@@ -129,3 +130,9 @@ Wi-Fi details are retained through app-only updates. A missed connection retries
 in the background. On this CYD, contacts briefly move to local storage during an
 uncached secure weather request, then return automatically. Contact browsing and
 editing pause during that lookup; messaging continues.
+
+For quick antenna tests, open **Setup > Bots > channel** and tap **Reply interval**
+until it says **Off / fast testing**. Send a fresh `test` for each comparison.
+New requests can use the same text; only relayed copies of the same original
+message are ignored. Wait for the previous reply before sending another request.
+An active interval displays its remaining wait in the channel bot setup screen.

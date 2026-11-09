@@ -25,21 +25,16 @@ inline int command(const Trigger& t,uint8_t flags,const char* test,const char* a
   if((flags&1)&&t.body==test)return 0;if((flags&2)&&t.body=="help")return 1;
   if((flags&4)&&t.body==a)return 2;if((flags&8)&&t.body==b)return 3;return -1;
 }
+inline bool validInterval(uint8_t seconds){return seconds==0||seconds==5||seconds==10||seconds==15||seconds==30||seconds==60;}
 struct Limits {
-  struct Seen {uint32_t id=0,sender=0,at=0;bool used=false;} seen[24];
-  uint32_t sentAt[6]={};uint8_t count=0,next=0;
-  bool allow(uint32_t now,uint32_t id,uint32_t sender)const{
-    for(const auto& s:seen)if(s.used&&(s.id==id||(s.sender==sender&&uint32_t(now-s.at)<300000)))return false;
-    if(count&&uint32_t(now-sentAt[(count-1)%6])<60000)return false;
-    int recent=0;for(int i=0;i<6&&i<count;i++)if(uint32_t(now-sentAt[i])<3600000)recent++;
-    return recent<6;
+  struct Seen {uint32_t id=0;uint8_t channel=0;bool used=false;} seen[24];
+  uint32_t sentAt[40]={};bool haveSent[40]={};uint32_t count=0;uint8_t next=0;
+  bool duplicate(uint32_t id,uint8_t channel)const{for(const auto& s:seen)if(s.used&&s.id==id&&s.channel==channel)return true;return false;}
+  uint32_t remaining(uint32_t now,uint8_t channel,uint8_t seconds)const{
+    if(channel>=40||!haveSent[channel]||!seconds)return 0;uint32_t gap=uint32_t(seconds)*1000,elapsed=now-sentAt[channel];return elapsed>=gap?0:gap-elapsed;
   }
-  void reserve(uint32_t now,uint32_t id,uint32_t sender){
-    seen[next].id=id;seen[next].sender=sender;seen[next].at=now;seen[next].used=true;next=(next+1)%24;
-    // Keep chronological rolling timestamps without an overflowing counter.
-    if(count==6){for(int i=1;i<6;i++)sentAt[i-1]=sentAt[i];sentAt[5]=now;}
-    else sentAt[count++]=now;
-  }
+  void remember(uint32_t id,uint8_t channel){seen[next].id=id;seen[next].channel=channel;seen[next].used=true;next=(next+1)%24;}
+  void dispatched(uint32_t now,uint8_t channel){if(channel<40){sentAt[channel]=now;haveSent[channel]=true;count++;}}
 };
 inline bool selfTest(){
   uint8_t frame[]={17,248,0,0,2,0x43,0,1,0,0,0,'A',':',' ','T','e','S','t'};Trigger t;
@@ -48,10 +43,13 @@ inline bool selfTest(){
   frame[17]='!';if(parse(frame,sizeof(frame),t))return false;frame[17]='t';frame[5]=255;
   if(!parse(frame,sizeof(frame),t)||t.hops!=-1)return false;
   t.body="meeting";if(command(t,7,"test","meeting","")!=2||command(t,3,"test","meeting","")!=-1||!keyword("meeting")||keyword("help")||keyword("two words")||keyword("[bot]"))return false;
-  Limits limits;if(!limits.allow(0,1,10))return false;limits.reserve(0,1,10);
-  if(limits.allow(60000,1,11)||limits.allow(59999,2,11)||limits.allow(60000,2,10))return false;
-  for(int i=1;i<6;i++){if(!limits.allow(i*60000,i+1,i+10))return false;limits.reserve(i*60000,i+1,i+10);}
-  if(limits.allow(360000,20,30)||!limits.allow(3600000,20,30))return false;
-  Limits wrap;wrap.reserve(0xfffffff0u,1,1);return !wrap.allow(20,2,2)&&wrap.allow(60000,2,2);
+  Limits limits;if(limits.remaining(0,2,30)||limits.duplicate(1,2))return false;
+  limits.remember(1,2);limits.dispatched(0,2);
+  if(!limits.duplicate(1,2)||limits.duplicate(2,2)||limits.duplicate(1,3))return false;
+  if(limits.remaining(29999,2,30)!=1||limits.remaining(30000,2,30)||limits.remaining(1,2,0)||limits.remaining(1,3,30))return false;
+  // Repeating the same body with a new source timestamp is a new request.
+  frame[7]++;if(!parse(frame,sizeof(frame),t)||t.identity==id||limits.duplicate(t.identity,2))return false;
+  for(int i=0;i<20;i++){limits.remember(i+2,2);limits.dispatched(i*5000+1,2);if(limits.remaining(i*5000+5001,2,5))return false;}
+  Limits wrap;wrap.dispatched(0xfffffff0u,1);return wrap.remaining(20,1,5)==4964&&!wrap.remaining(6000,1,5)&&validInterval(30)&&validInterval(0)&&!validInterval(255);
 }
 }

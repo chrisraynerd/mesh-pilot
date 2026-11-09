@@ -5,6 +5,8 @@
 #include <Preferences.h>
 #include <vector>
 #include <deque>
+#include <memory>
+#include <new>
 #include <atomic>
 #include <LittleFS.h>
 #include "protocol.h"
@@ -696,6 +698,10 @@ int createSendWatch(uint32_t timestamp,bool direct,uint8_t channel,const uint8_t
   int slot=-1;
   for(int i=0;i<4;i++)if(!sends[i].active){slot=i;break;}
   if(slot<0)for(int i=0;i<4;i++)if(sends[i].done||sends[i].timedOut){slot=i;break;}
+  if(slot<0&&automatic){
+    uint32_t oldest=0;for(int i=0;i<4;i++)if(sends[i].automatic){uint32_t age=millis()-sends[i].started;if(slot<0||age>=oldest){slot=i;oldest=age;}}
+    if(slot>=0)updateSendResult(sends[slot].timestamp,sends[slot].accepted?field::SendState::TRACKING_UNAVAILABLE:field::SendState::UNCONFIRMED);
+  }
   if(slot<0)return -1;
   sends[slot]=SendWatch{};auto& s=sends[slot];s.active=true;s.direct=direct;s.automatic=automatic;s.started=millis();s.deadline=millis()+(direct?120000:45000);s.timestamp=timestamp;
   s.target=displayText(target);s.text=text;s.channel=channel;if(direct&&peer)memcpy(s.peer,peer,6);
@@ -1142,7 +1148,7 @@ void processReplies() {
 }
 void setup() {
   Serial.begin(115200);delay(300);
-  Serial.println("Mesh Pilot 0.18.1 / E32R28T");
+  Serial.println("Mesh Pilot 0.19.0 / E32R28T");
   pinMode(21,OUTPUT);digitalWrite(21,HIGH);
   lcd.init();lcd.setRotation(1);
   touchBus.begin(25,39,32,33);touch.begin(touchBus);touch.setRotation(1);

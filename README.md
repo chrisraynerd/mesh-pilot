@@ -2,7 +2,9 @@
 
 An independent, open-source, phone-free MeshCore terminal for ESP32 touchscreens.
 
-Current development version: **0.18.1**.
+Current development version: **0.19.0**.
+Bot replies now use a configurable per-channel interval (30 seconds by default);
+the older per-sender and hourly limits described in historical sections are removed.
 Start with [the short user guide](QUICK-START.md).
 Public source: https://github.com/chrisraynerd/mesh-pilot
 Licence: MIT; dependency notices are listed in THIRD_PARTY.md.
@@ -592,7 +594,7 @@ the [MeshCore companion message implementation](https://github.com/meshcore-dev/
 A reply reports reception at this station; it does not establish that its own
 reply reached the sender or guarantee general network coverage.
 
-Replies wait a random 3�8 seconds and expire after 30 seconds if the radio is
+Replies wait a random 3–8 seconds and expire after 30 seconds if the radio is
 busy. Across all enabled channels: at most one attempt per minute, six per
 rolling hour and one per sender name per five minutes. The last 24 trigger
 identities are remembered in RAM, ignoring changed reception metadata. Sender
@@ -786,7 +788,7 @@ Bluetooth notifications now queue pointers to owned, length-sized packets instea
 of reserving 64 complete 260-byte frames. Capacity remains 64 notifications;
 critical allocation/queue failures still force the existing reconnect path.
 Packets are freed after dequeue, on rejection and when reconnect clears a queue.
-Boot fixtures exercise FIFO contents, 1�256-byte frames, overflow, clearing and
+Boot fixtures exercise FIFO contents, 1–256-byte frames, overflow, clearing and
 heap recovery over repeated cycles. This releases roughly 16 KB while idle and
 provides the contiguous memory required by the TLS buffers.
 
@@ -804,3 +806,51 @@ bytes. After completion the device reported 48,240 bytes free heap and a
 cached result, with all contacts present and both connections retained. The owner
 confirmed weather was visible. A weather response over the mesh and extended
 coexistence testing remain to be checked by the owner.
+
+## Configurable bot reply interval (0.19)
+
+**Setup > Bots > channel > Reply interval** cycles through Off, 5, 10, 15, 30
+and 60 seconds. The default for new or migrated settings is 30 seconds. The
+interval is measured from the app's last reply-send attempt for that channel;
+there is no per-sender cooldown, cross-channel interval or hourly cap. All
+commands in a channel share its interval. An interval-blocked request is ignored,
+not queued for later. The setup screen shows the remaining wait when it happens.
+Changing just the interval saves immediately and does not stop an enabled bot.
+
+Duplicate protection only recognises the same incoming channel/message identity
+(timestamp, sender and body), ignoring different SNR/path metadata. The last 24
+accepted identities are remembered in RAM. A newly sent `test` with a new source
+timestamp is a new request, even if its text and sender are identical. Off gives
+fast testing with a 250–750 ms reply delay; other settings retain the 3–8 second
+random delay. One reply/lookup can be pending at a time, and uncertain sends are
+never automatically retried. Radio airtime constraints still apply independently.
+
+MPB4 saves the interval per channel. MPB1/MPB2/MPB3 migrate without losing stored
+keywords, replies, locations or weather switches, defaulting intervals to 30.
+Wi-Fi credentials are unaffected. Tests cover interval boundaries, independent
+channels, Off, more than six sends, timer wrap, genuine duplicate copies and new
+timestamps. Boot UI fixtures exercise the visible blocked reason and rapid new
+tests with Off; storage fixtures round-trip all six settings and migrate all
+three older formats. Fixtures do not transmit RF.
+
+Rapid bot replies can reuse their oldest live echo-tracking slot if all four
+slots are occupied by bots. That older result is kept as tracking unavailable
+(or unconfirmed if the radio had not accepted it). In-flight manually sent
+messages are never displaced. Boot fixtures cover more than four rapid bot
+requests and protection of four in-flight manual messages.
+
+Bot-settings reads use a fallible allocation. The isolated storage test saves
+its real RAM settings to a reserved backup file and restores them afterward,
+using one decode buffer at a time so testing with Wi-Fi running does not need
+three complete copies of all 40 channel configurations.
+
+### 0.19 device verification
+
+The final app (1,485,248 bytes; SHA-256
+`6b9e7bda0c625429658b88b7b45a924b5581f4c61de74e8b73495ca04d088bcc`)
+was installed with verified hashes. All startup fixtures passed, including
+interval/deduplication admission, rapid bot tracking and manual-message protection.
+The isolated settings/corruption/migration tests passed on the CYD. The bonded
+Heltec reconnected, all 256 contacts loaded and Wi-Fi reconnected using its saved
+credentials. Human verification of the interval control and rapid on-air requests
+remains pending.

@@ -1,28 +1,28 @@
 #pragma once
-struct BotChannel {uint8_t key[16]={};char place[25]="Ramsbottom";uint8_t flags=3;char test[17]="test",words[2][17]={},replies[2][101]={};};
+struct BotChannel {uint8_t key[16]={};char place[25]="Ramsbottom";uint8_t flags=3;char test[17]="test",words[2][17]={},replies[2][101]={};uint8_t interval=30;};
 BotChannel botChannels[40];bool botEnabled[40]={},botDrained=false,botQueued=false,botSaveFailed=false;
 String botRadio,botReply,botInfo;uint8_t botQueuedChannel=0;uint32_t botDue=0,botExpires=0;
 int botPage=0,botSelected=0,botCommandSelected=0;bot::Limits botLimits;
 bool writeBotSettings(const String& path){
-  FieldWriter w(path,"MPB3",40);for(const auto& c:botChannels){w.put(c.key,16);w.put(reinterpret_cast<const uint8_t*>(c.place),25);w.put(&c.flags,1);w.put(reinterpret_cast<const uint8_t*>(c.test),17);w.put(reinterpret_cast<const uint8_t*>(c.words),34);w.put(reinterpret_cast<const uint8_t*>(c.replies),202);}return w.finish();
+  FieldWriter w(path,"MPB4",40);for(const auto& c:botChannels){w.put(c.key,16);w.put(reinterpret_cast<const uint8_t*>(c.place),25);w.put(&c.flags,1);w.put(reinterpret_cast<const uint8_t*>(c.test),17);w.put(reinterpret_cast<const uint8_t*>(c.words),34);w.put(reinterpret_cast<const uint8_t*>(c.replies),202);w.put(&c.interval,1);}return w.finish();
 }
 bool readBotSettings(const String& path,BotChannel* output){
-  File f=LittleFS.open(path,"r");uint8_t magic[4]={};if(!f||f.read(magic,4)!=4){if(f)f.close();return false;}f.close();bool legacy=!memcmp(magic,"MPB1",4);bool latest=!memcmp(magic,"MPB3",4);
-  FieldReader r(path,legacy?"MPB1":latest?"MPB3":"MPB2",40,11812);std::vector<BotChannel> loaded(40);if(r.count!=40)r.ok=false;
+  File f=LittleFS.open(path,"r");uint8_t magic[4]={};if(!f||f.read(magic,4)!=4){if(f)f.close();return false;}f.close();bool legacy=!memcmp(magic,"MPB1",4);bool v4=!memcmp(magic,"MPB4",4);bool latest=v4||!memcmp(magic,"MPB3",4);
+  FieldReader r(path,legacy?"MPB1":v4?"MPB4":latest?"MPB3":"MPB2",40,11852);std::unique_ptr<BotChannel[]> loaded(new(std::nothrow) BotChannel[40]);if(!loaded)return false;if(r.count!=40)r.ok=false;
   auto validText=[](const char* text,int size){if(text[size-1])return false;for(int i=0;i<size-1&&text[i];i++)if(uint8_t(text[i])<32||uint8_t(text[i])>126)return false;return true;};
-  for(auto& c:loaded){r.get(c.key,16);r.get(reinterpret_cast<uint8_t*>(c.place),25);
-    if(!legacy){r.get(&c.flags,1);r.get(reinterpret_cast<uint8_t*>(c.test),17);r.get(reinterpret_cast<uint8_t*>(c.words),34);r.get(reinterpret_cast<uint8_t*>(c.replies),202);}
-    if(!validText(c.place,25)||c.flags>(latest?31:15)||!validText(c.test,17)||!bot::keyword(c.test))return false;
+  for(int row=0;row<40;row++){auto& c=loaded[row];r.get(c.key,16);r.get(reinterpret_cast<uint8_t*>(c.place),25);
+    if(!legacy){r.get(&c.flags,1);r.get(reinterpret_cast<uint8_t*>(c.test),17);r.get(reinterpret_cast<uint8_t*>(c.words),34);r.get(reinterpret_cast<uint8_t*>(c.replies),202);if(v4)r.get(&c.interval,1);}
+    if(!bot::validInterval(c.interval)||!validText(c.place,25)||c.flags>(latest?31:15)||!validText(c.test,17)||!bot::keyword(c.test))return false;
     for(int i=0;i<2;i++){if(!validText(c.words[i],17)||!validText(c.replies[i],101))return false;
       if(c.words[i][0]&&(!bot::keyword(c.words[i])||!strcmp(c.words[i],c.test)||(i&& !strcmp(c.words[i],c.words[0]))))r.ok=false;
       if((c.flags&(4<<i))&&(!c.words[i][0]||!c.replies[i][0]))r.ok=false;}
   }
-  if(!r.finish())return false;memcpy(output,loaded.data(),sizeof(BotChannel)*40);return true;
+  if(!r.finish())return false;memcpy(output,loaded.get(),sizeof(BotChannel)*40);return true;
 }
 void resetBotLink(){cancelBotWeather();botDrained=false;botQueued=false;botReply="";}
 void loadBot(){
   resetBotLink();if(botRadio==activeAddress)return;
-  botRadio=activeAddress;memset(botEnabled,0,sizeof(botEnabled));for(auto& c:botChannels)c=BotChannel{};
+  botRadio=activeAddress;botLimits=bot::Limits{};memset(botEnabled,0,sizeof(botEnabled));for(auto& c:botChannels)c=BotChannel{};
   botSaveFailed=false;if(LittleFS.exists(fieldPath(".bot"))&&!readBotSettings(fieldPath(".bot"),botChannels))botSaveFailed=true;
 }
 bool botChannelValid(int slot){return slot>=0&&slot<maxChannels&&channels[slot].length()&&haveChannelKey[slot]&&!memcmp(botChannels[slot].key,channelKeys[slot],16);}
@@ -33,6 +33,10 @@ void saveBotLocation(const String& text){
   saveBotSettings();
 }
 void botQueueDrained(){botDrained=true;}
+void botNotice(int channel,const String& text){
+  if(channel==botSelected){botInfo=text;if(!fixtureMode&&(screen==Screen::BOT_SETUP||screen==Screen::WEATHER_SETTINGS)){lcd.fillRect(12,211,296,24,BG);lcd.setTextColor(TFT_WHITE,BG);lcd.drawString(text.substring(0,49),12,215,1);}}
+  if(!fixtureMode)Serial.printf("Bot slot %d: %s\n",channel+1,text.c_str());
+}
 void botIncoming(const Reply& reply){
   if(fixtureMode||!ready||!linkActive||!botDrained||botQueued||storageBlocked)return;
   protocol::MessageView view;if(!protocol::message(reply.data,reply.length,view)||view.direct||view.channel>=40)return;
@@ -41,19 +45,20 @@ void botIncoming(const Reply& reply){
   auto& config=botChannels[slot];int kind=bot::command(trigger,config.flags,config.test,config.words[0],config.words[1]);std::string weatherPlace;
   if(kind<0&&(config.flags&16)&&weather::query(trigger.body,weatherPlace))kind=4;
   if(kind<0)return;
-  uint32_t sender=bot::hash(reinterpret_cast<const uint8_t*>(trigger.sender.data()),trigger.sender.size());
-  if(!botLimits.allow(millis(),trigger.identity,sender))return;
-  // Reserve before scheduling; cancelled/unconfirmed replies are never retried.
-  botLimits.reserve(millis(),trigger.identity,sender);
+  if(botLimits.duplicate(trigger.identity,slot)){botNotice(slot,"Repeat copy ignored (same radio message)");return;}
+  uint32_t wait=botLimits.remaining(millis(),slot,config.interval);
+  if(wait){botNotice(slot,"Reply interval: wait "+String((wait+999)/1000)+"s");return;}
+  // Remember the received identity immediately; start the interval at dispatch.
+  botLimits.remember(trigger.identity,slot);
   if(kind==0){botReply="[bot] Seen";if(strlen(botChannels[slot].place))botReply+=" in "+String(botChannels[slot].place);
   botReply+=trigger.hops<0?"; hops unknown":trigger.hops==0?"; direct (0 hops)":"; "+String(trigger.hops)+" hop"+(trigger.hops==1?"":"s");
   botReply+=trigger.hasSnr?"; last-hop SNR "+String(trigger.snr/4.0f,2)+" dB":"; SNR unavailable";
   botReply+=". RX only.";
   }else if(kind==1){botReply="[bot] Commands:";if(config.flags&1)botReply+=" "+String(config.test);if(config.flags&2)botReply+=" help";if(config.flags&16)botReply+=" wx";for(int i=0;i<2;i++)if(config.flags&(4<<i))botReply+=" "+String(config.words[i]);}
   else if(kind<4)botReply="[bot] "+String(config.replies[kind-2]);
-  botQueuedChannel=slot;botQueued=true;botDue=millis()+3000+(esp_random()%5001);botExpires=millis()+(kind==4?45000:30000);
+  botQueuedChannel=slot;botQueued=true;botDue=millis()+(config.interval==0?250+(esp_random()%501):3000+(esp_random()%5001));botExpires=millis()+(kind==4?45000:30000);
   if(kind==4){botReply="";requestWeather(weatherPlace.empty()?String(config.place):String(weatherPlace.c_str()),true);}
-  botInfo="Reply waiting for a free radio.";Serial.println("Bot trigger matched; one bounded reply scheduled");
+  botNotice(slot,"Reply waiting for a free radio.");Serial.println("Bot trigger matched; one bounded reply scheduled");
 }
 void tickBot(){
   if(fixtureMode)return;
@@ -69,6 +74,7 @@ void tickBot(){
   pendingSend=watch;lastOutgoingTimestamp=stamp;uint8_t packet[133]={3,0,botQueuedChannel};protocol::write32(packet+3,stamp);
   size_t length=min(size_t(120),size_t(botReply.length()));memcpy(packet+7,botReply.c_str(),length);botQueued=false;
   botInfo="Reply requested; check Net > Sent.";
+  botLimits.dispatched(millis(),botQueuedChannel);
   if(!sendCommand(packet,length+7,Pending::SEND)){
     recordOutgoing(false);sends[watch].timedOut=true;updateSendResult(stamp,field::SendState::UNCONFIRMED);pendingSend=-1;
     failLink("Bot send unconfirmed; no automatic retry.");
@@ -83,8 +89,8 @@ void drawBotSetup(){
   screen=Screen::BOT_SETUP;header(("Bot: "+channels[botSelected]).substring(0,22).c_str());smallButton(220,4,88,26,"Commands");
   smallButton(12,42,296,30,("Location: "+String(botChannels[botSelected].place)).c_str());
   smallButton(12,80,296,32,botEnabled[botSelected]?"Bot ON - tap to stop":"Bot OFF - tap to enable");
-  lcd.setTextColor(TFT_WHITE,BG);lcd.drawString("Commands: test, help and your own replies",12,121,1);lcd.drawString("Replies here only: place, hops, last-hop SNR",12,138,1);
-  lcd.drawString("Max 1/min, 1/sender/5min, 6/hour overall",12,155,1);
+  smallButton(12,120,296,30,("Reply interval: "+String(botChannels[botSelected].interval?String(botChannels[botSelected].interval)+" seconds":"Off / fast testing")).c_str());
+  lcd.setTextColor(TFT_WHITE,BG);lcd.drawString("Tap interval to change. Repeat copies ignored.",12,157,1);
   smallButton(12,177,100,28,"Back");lcd.setTextColor(botSaveFailed?TFT_ORANGE:TFT_WHITE,BG);
   lcd.drawString(botInfo.length()?botInfo.substring(0,49):"No old-message replies; no automatic retries.",12,215,1);
 }
@@ -138,22 +144,35 @@ bool botTouch(int x,int y){
     if(botEnabled[botSelected]){botEnabled[botSelected]=false;if(botQueuedChannel==botSelected)botQueued=false;botInfo="Off. Already-sent replies cannot be recalled.";}
     else if(ready&&haveChannelKey[botSelected]&&!storageBlocked){memcpy(botChannels[botSelected].key,channelKeys[botSelected],16);if(saveBotSettings()){botEnabled[botSelected]=true;resetBotLink();lastPoll=millis()-3000;botInfo="On after old messages finish loading.";}}
     else botInfo="Connect the radio and check storage first.";drawBotSetup();
+  }else if(x>=12&&x<=308&&y>=120&&y<=150){
+    const uint8_t options[]={0,5,10,15,30,60};auto& interval=botChannels[botSelected].interval;
+    for(size_t i=0;i<6;i++)if(interval==options[i]){interval=options[(i+1)%6];break;}
+    if(saveBotSettings()){botInfo="Interval saved; applies to new requests.";}drawBotSetup();
   }else if(x>=12&&x<=112&&y>=177&&y<=205)drawBotChannels();return true;
 }
 int activeBotCount(){int count=0;for(int i=0;i<40;i++)if(botEnabled[i]&&botChannelValid(i))count++;return count;}
 void botStatus(){int count=activeBotCount();Serial.printf("Bot status: enabledChannels=%d; drained=%d; queued=%d; settingsFailed=%d; attempts=%u\n",count,botDrained,botQueued,botSaveFailed,botLimits.count);}
 bool botStorageSelfTest(){
-  if(!storageReady)return false;String savedJournal=journalPath;journalPath="/fixture-bot-test.log";const String path="/fixture-bot-test.bin";std::vector<BotChannel> saved(botChannels,botChannels+40),loaded(40);
-  for(int i=0;i<40;i++){botChannels[i]=BotChannel{};strcpy(botChannels[i].words[0],"meeting");strcpy(botChannels[i].replies[0],"Meet at the agreed place");botChannels[i].flags=23;memset(botChannels[i].key,i+1,16);snprintf(botChannels[i].place,25,"Fixture %d",i);}
-  bool ok=writeBotSettings(path)&&readBotSettings(path,loaded.data())&&!memcmp(loaded.data(),botChannels,sizeof(botChannels));
+  if(!storageReady||weatherBusyForDiagnostics())return false;
+  String savedJournal=journalPath;journalPath="/fixture-bot-test.log";const String path="/fixture-bot-test.bin",backup="/fixture-bot-backup.bin";
+  if(!writeBotSettings(backup)){journalPath=savedJournal;return false;}
+  const uint8_t intervals[]={0,5,10,15,30,60};
+  for(int i=0;i<40;i++){auto& c=botChannels[i];c=BotChannel{};strcpy(c.words[0],"meeting");strcpy(c.replies[0],"Meet at the agreed place");c.flags=23;c.interval=intervals[i%6];memset(c.key,i+1,16);snprintf(c.place,25,"Fixture %d",i);}
+  uint32_t expected=bot::hash(reinterpret_cast<const uint8_t*>(botChannels),sizeof(botChannels));
+  bool ok=writeBotSettings(path);for(auto& c:botChannels)c=BotChannel{};
+  ok=readBotSettings(path,botChannels)&&ok;ok=ok&&bot::hash(reinterpret_cast<const uint8_t*>(botChannels),sizeof(botChannels))==expected;
   File f=LittleFS.open(path,"r+");if(f){f.seek(12);f.write(uint8_t(0xff));f.close();}else ok=false;
-  ok=ok&&!readBotSettings(path,loaded.data());
+  ok=ok&&!readBotSettings(path,botChannels)&&bot::hash(reinterpret_cast<const uint8_t*>(botChannels),sizeof(botChannels))==expected;
   FieldWriter v2(path,"MPB2",40);for(const auto& c:botChannels){uint8_t flags=7;v2.put(c.key,16);v2.put(reinterpret_cast<const uint8_t*>(c.place),25);v2.put(&flags,1);v2.put(reinterpret_cast<const uint8_t*>(c.test),17);v2.put(reinterpret_cast<const uint8_t*>(c.words),34);v2.put(reinterpret_cast<const uint8_t*>(c.replies),202);}
-  ok=v2.finish()&&ok;ok=readBotSettings(path,loaded.data())&&ok;for(const auto& c:loaded)ok=ok&&c.flags==7&&!strcmp(c.words[0],"meeting");
+  ok=v2.finish()&&ok;ok=readBotSettings(path,botChannels)&&ok;for(const auto& c:botChannels)ok=ok&&c.flags==7&&c.interval==30&&!strcmp(c.words[0],"meeting");
+  FieldWriter v3(path,"MPB3",40);for(auto& c:botChannels){c.flags=23;v3.put(c.key,16);v3.put(reinterpret_cast<const uint8_t*>(c.place),25);v3.put(&c.flags,1);v3.put(reinterpret_cast<const uint8_t*>(c.test),17);v3.put(reinterpret_cast<const uint8_t*>(c.words),34);v3.put(reinterpret_cast<const uint8_t*>(c.replies),202);}
+  ok=v3.finish()&&ok;ok=readBotSettings(path,botChannels)&&ok;for(const auto& c:botChannels)ok=ok&&c.flags==23&&c.interval==30&&!strcmp(c.words[0],"meeting");
   FieldWriter legacy(path,"MPB1",40);for(const auto& c:botChannels){legacy.put(c.key,16);legacy.put(reinterpret_cast<const uint8_t*>(c.place),25);}
-  ok=legacy.finish()&&ok;ok=readBotSettings(path,loaded.data())&&ok;
-  for(const auto& c:loaded)ok=ok&&c.flags==3&&!strcmp(c.test,"test")&&!c.words[0][0]&&!c.replies[0][0];
-  memcpy(botChannels,saved.data(),sizeof(botChannels));LittleFS.remove(path);if(LittleFS.exists(path+".tmp"))LittleFS.remove(path+".tmp");journalPath=savedJournal;return ok;
+  ok=legacy.finish()&&ok;ok=readBotSettings(path,botChannels)&&ok;
+  for(const auto& c:botChannels)ok=ok&&c.flags==3&&c.interval==30&&!strcmp(c.test,"test")&&!c.words[0][0]&&!c.replies[0][0];
+  bool restored=readBotSettings(backup,botChannels);
+  if(restored)LittleFS.remove(backup);else{memset(botEnabled,0,sizeof(botEnabled));for(auto& c:botChannels)c=BotChannel{};botSaveFailed=true;botInfo="Restore failed; restart to reload settings.";}
+  LittleFS.remove(path);if(LittleFS.exists(path+".tmp"))LittleFS.remove(path+".tmp");journalPath=savedJournal;return ok&&restored;
 }
 
 bool botUiSelfTest(){
@@ -168,6 +187,10 @@ bool botUiSelfTest(){
   botIncoming(r);bool ok=!botQueued;botQueueDrained();r.data[4]=1;botIncoming(r);ok=ok&&!botQueued;
   r.data[4]=0;botIncoming(r);ok=ok&&botQueued&&botQueuedChannel==0&&botReply=="[bot] Seen in Ramsbottom; 2 hops; last-hop SNR 5.00 dB. RX only.";
   resetBotLink();botQueueDrained();botIncoming(r);ok=ok&&!botQueued; // duplicate
+  botLimits.dispatched(millis(),0);r.data[7]=2;botIncoming(r);ok=ok&&!botQueued&&botInfo.startsWith("Reply interval:");
+  botChannels[0].interval=0;botIncoming(r);ok=ok&&botQueued;
+  resetBotLink();botQueueDrained();r.data[7]=3;botIncoming(r);ok=ok&&botQueued;
+  resetBotLink();botQueueDrained();botChannels[0].interval=30;
   r.data[7]=2;botEnabled[0]=false;botIncoming(r);ok=ok&&!botQueued;
   botEnabled[0]=true;botLimits=bot::Limits{};botChannels[0].flags=7;strcpy(botChannels[0].words[0],"meeting");strcpy(botChannels[0].replies[0],"Use the agreed meeting place");
   memcpy(r.data+14,"HELP",4);botIncoming(r);ok=ok&&botQueued&&botReply=="[bot] Commands: test help meeting";
@@ -177,6 +200,10 @@ bool botUiSelfTest(){
   fixtureMode=true;draft="Unsent family message";currentChannel=1;composingDirect=true;
   int slot=createSendWatch(42,false,0,nullptr,"Fixture","[bot] received",true);
   ok=ok&&slot>=0&&sends[slot].automatic&&!sends[slot].direct&&sends[slot].channel==0&&sends[slot].text=="[bot] received"&&draft=="Unsent family message"&&composingDirect&&currentChannel==1;
+  for(int i=0;i<8;i++)ok=createSendWatch(50+i,false,0,nullptr,"Fixture","[bot] rapid",true)>=0&&ok;
+  for(auto& watch:sends)watch=SendWatch{};
+  for(int i=0;i<4;i++)ok=createSendWatch(70+i,false,0,nullptr,"Fixture","Manual",false)>=0&&ok;
+  ok=ok&&createSendWatch(80,false,0,nullptr,"Fixture","[bot] rapid",true)<0;
   for(auto& watch:sends)watch=SendWatch{};latestSend=-1;ready=linkActive=false;maxChannels=0;
   channels[0]=channels[1]="";haveChannelKey[0]=haveChannelKey[1]=false;wireName="";currentChannel=0;composingDirect=false;
   memset(botEnabled,0,sizeof(botEnabled));botLimits=bot::Limits{};resetBotLink();botInfo="";

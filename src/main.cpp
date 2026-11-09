@@ -33,7 +33,7 @@ const char* SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
 float ax, bx, cx, ay, by, cy;
 bool calibrated = false;
 bool pressed = false;
-enum class Screen { HOME, RADIOS, PIN, LINK, CHANNELS, CHAT, COMPOSE, INBOX, NETWORK, NODES, NODE, CLOCK, DIRECT_PICK, DIRECT_CHAT, CHANNEL_SLOTS, CHANNEL_EDIT, CONTACT_EDIT, TEXT_EDIT, CONFIRM, SETTINGS, DISCOVERY, NEARBY, NEARBY_DETAIL, ADVERT, RADIO_STATS, SENT_RESULTS, MESSAGE_DETAIL, COVERAGE, COVERAGE_NEW, COVERAGE_TEST, COVERAGE_SIGNAL, ANTENNA_LIST, ANTENNA_SETUP, ANTENNA_PICK, ANTENNA_SESSION, ANTENNA_RUN, ANTENNA_RESULTS, ANTENNA_SAMPLES, ANTENNA_HELP, BOT_CHANNELS, BOT_SETUP };
+enum class Screen { HOME, RADIOS, PIN, LINK, CHANNELS, CHAT, COMPOSE, INBOX, NETWORK, NODES, NODE, CLOCK, DIRECT_PICK, DIRECT_CHAT, CHANNEL_SLOTS, CHANNEL_EDIT, CONTACT_EDIT, TEXT_EDIT, CONFIRM, SETTINGS, DISCOVERY, NEARBY, NEARBY_DETAIL, ADVERT, RADIO_STATS, SENT_RESULTS, MESSAGE_DETAIL, COVERAGE, COVERAGE_NEW, COVERAGE_TEST, COVERAGE_SIGNAL, ANTENNA_LIST, ANTENNA_SETUP, ANTENNA_PICK, ANTENNA_SESSION, ANTENNA_RUN, ANTENNA_RESULTS, ANTENNA_SAMPLES, ANTENNA_HELP, BOT_CHANNELS, BOT_SETUP, BOT_COMMANDS, BOT_COMMAND_EDIT };
 Screen screen = Screen::HOME;
 std::vector<NimBLEAdvertisedDevice> radios;
 int selected = -1;
@@ -164,6 +164,9 @@ void botIncoming(const Reply& reply);
 void tickBot();
 void botQueueDrained();
 void saveBotLocation(const String& text);
+void saveBotText(const String& text,bool reply);
+void drawBotCommands();
+void drawBotCommandEdit();
 void botStatus();
 int activeBotCount();
 bool botStorageSelfTest();
@@ -1086,7 +1089,7 @@ void processReplies() {
 }
 void setup() {
   Serial.begin(115200);delay(300);
-  Serial.println("Mesh Pilot 0.16.2 / E32R28T");
+  Serial.println("Mesh Pilot 0.17.0 / E32R28T");
   pinMode(21,OUTPUT);digitalWrite(21,HIGH);
   lcd.init();lcd.setRotation(1);
   touchBus.begin(25,39,32,33);touch.begin(touchBus);touch.setRotation(1);

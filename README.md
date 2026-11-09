@@ -2,7 +2,7 @@
 
 An independent, open-source, phone-free MeshCore terminal for ESP32 touchscreens.
 
-Current development version: **0.16.2**.
+Current development version: **0.17.0**.
 Start with [the short user guide](QUICK-START.md).
 Public source: https://github.com/chrisraynerd/mesh-pilot
 Licence: MIT; dependency notices are listed in THIRD_PARTY.md.
@@ -653,3 +653,39 @@ passed the startup checks including scrolling and buffered rendering. One
 channel bot was enabled during the final read-only status check and was left
 running. The full-frame USB preview could not be captured in that live session;
 the image in the 0.16 section shows the earlier bottom-row layout.
+
+## Editable offline bot commands (0.17)
+
+Open **Setup > Bots > channel > Commands**. Each channel has independent switches
+for the reception report, `help` and two custom text replies. The reception
+keyword defaults to `test` and is editable. `help` is fixed and lists only
+commands enabled in that channel. A custom reply has an editable keyword (up to
+16 characters) and answer (up to 100 ASCII characters); outgoing replies include
+`[bot]` so they cannot match another exact keyword. No variables or scripts are
+executed. Commands match the complete trimmed message, ignoring case. Keywords
+accept letters, numbers, hyphen and underscore and must be unique within their
+channel; `help` is reserved. There are no aliases or arguments in this release.
+
+Set a custom keyword and reply, enable that command, then return to the channel
+screen and enable its bot. Editing settings or toggling a command stops that
+channel's bot and cancels its unsent reply, allowing review before re-enabling.
+Full CYD restarts still turn bots off. Existing reply delays, duplicate checks,
+per-sender and overall limits apply to every command, including `help`.
+
+Per-radio `.bot` settings now use checksummed atomic MPB2 records. MPB1 files
+load with their saved locations and reception keywords defaulting to `test`;
+`help` is enabled and custom commands start off. No active switch is restored
+from disk. Isolated storage checks cover MPB2 replacement/corruption and MPB1
+migration. Boot fixtures exercise channel isolation, mixed-case custom replies,
+help generation, backlog suppression and draft isolation without RF sends.
+
+This stage works offline. Wi-Fi setup and internet weather lookups are not yet
+included; they need secure request handling, memory and BLE coexistence testing.
+
+The 0.17.0 application (904,848 bytes, SHA-256
+`100b4bf717a22db0580641ab9af17b9105ca76d7935ac7e575ec82cd4dff30ac`)
+was installed with verified flash hashes. All boot fixtures passed and the CYD
+reconnected to its bonded Heltec. Free heap before BLE was 174,768 bytes and
+static RAM 56,492 bytes. The isolated bot-storage and legacy migration checks
+passed on the live CYD; existing settings reported no storage failure. Human
+validation of the editor and a real custom reply remain pending.

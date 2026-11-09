@@ -93,3 +93,16 @@ not retry. See **Net > Sent** for outcomes. Your draft is kept separate. Turn it
 off on the same channel screen; full screen-device restarts turn all bots off.
 The location labels are remembered. A bot reply confirms this device received
 the trigger, not that every node or person received it.
+
+### Your own bot keywords and replies
+
+Open **Setup > Bots > channel > Commands**. Choose **Custom reply 1** or **2**,
+set its **Keyword**, tap **Edit reply** and write the answer, then turn the
+command **ON**. For example, `meeting` can reply with your agreed meeting place.
+Back on the channel bot screen, turn that channel's bot **ON** too. Configuration
+changes stop the channel bot so you can review before enabling it.
+
+The reception-report keyword is editable, while `help` lists enabled commands.
+Keywords match a whole message in any mix of capitals; `meeting please` does not
+match `meeting`. Existing cooldowns also apply to these commands. Wi-Fi/weather
+is planned as the next stage and is not part of this offline update.

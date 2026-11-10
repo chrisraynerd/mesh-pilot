@@ -15,10 +15,12 @@ inline uint32_t next(const uint8_t* p,size_t n,size_t& i) {
   if((count==1&&cp<0x80)||(count==2&&cp<0x800)||(count==3&&cp<0x10000)||cp>0x10ffff||(cp>=0xd800&&cp<=0xdfff))return 0xfffd;
   i+=count;return cp;
 }
-inline std::string ascii(const uint8_t* p,size_t n) {
+inline std::string ascii(const uint8_t* p,size_t n,bool newlines=false) {
   std::string out;out.reserve(n);
   for(size_t i=0;i<n;) {
     uint32_t cp=next(p,n,i);if(!cp)break;
+    if(newlines&&cp==10){out+='\n';continue;}
+    if(newlines&&cp==13&&i<n&&p[i]==10)continue;
     if(cp>=32&&cp<=126){out+=char(cp);continue;}
     if(cp<32||cp==127||cp==0xa0){out+=' ';continue;}
     if((cp>=0x300&&cp<=0x36f)||cp==0x200d||cp==0xfe0e||cp==0xfe0f||(cp>=0x1f3fb&&cp<=0x1f3ff))continue;
@@ -68,7 +70,8 @@ inline bool selfTest() {
   const uint8_t accents[]={'c','a','f',0xc3,0xa9,' ',0xe2,0x80,0x94,' ',0xc2,0xa3,'5'};
   const uint8_t bad[]={0xf0,0x9f,'O','K'};
   const uint8_t unknown[]={0xf0,0x9f,0x9a,0x80};
-  return ascii(emoji,sizeof(emoji))=="[cat]Node: hello [hand]"
+  const uint8_t lines[]={'A',13,10,'B',10,'C'};
+  return ascii(lines,sizeof(lines))=="A  B C"&&ascii(lines,sizeof(lines),true)=="A\nB\nC"&&ascii(emoji,sizeof(emoji))=="[cat]Node: hello [hand]"
     &&ascii(accents,sizeof(accents))=="cafe - GBP5"
     &&ascii(bad,sizeof(bad))=="[?][?]OK"
     &&ascii(unknown,sizeof(unknown))=="[U+1F680]";

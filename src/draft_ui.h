@@ -64,7 +64,7 @@ bool terminalStorageSelfTest() {
   loadReadState();ok=ok&&channelRead[3]==0&&readPeers.empty();
   draft_tools::Draft sample{},loaded{};sample.channel=1;strcpy(sample.name,"#fixture");strcpy(sample.text,"Local unsent draft fixture");
   ok=writeDraftFile(sample)&&loadDraftFile(loaded)&&!strcmp(sample.text,loaded.text)&&ok;
-  strcpy(sample.text,"Replaced fixture");ok=writeDraftFile(sample)&&loadDraftFile(loaded)&&!strcmp(sample.text,loaded.text)&&ok;
+  strcpy(sample.text,"> Alice: Meet at the gate\nOn my way");ok=writeDraftFile(sample)&&loadDraftFile(loaded)&&!strcmp(sample.text,loaded.text)&&ok;
   // Exercise the production restore path without writing to a user journal.
   String originalDraft=draft,originalName=directName,originalStatus=statusLine,originalChannel=channels[1];
   uint8_t originalPeer[32],originalKey[16];memcpy(originalPeer,directPeer,32);memcpy(originalKey,channelKeys[1],16);

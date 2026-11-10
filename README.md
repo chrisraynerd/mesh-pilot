@@ -2,9 +2,10 @@
 
 An independent, open-source, phone-free MeshCore terminal for ESP32 touchscreens.
 
-Current development version: **0.20.0**.
+Current development version: **0.21.0**.
 
-See [current bot controls and commands](#checkbox-bots-and-command-aliases-020).
+See [quoted channel replies](#quoted-channel-replies-021) and
+[current bot controls and commands](#checkbox-bots-and-command-aliases-020).
 Versioned sections below also document earlier behavior.
 Bot replies now use a configurable per-channel interval (30 seconds by default);
 the older per-sender and hourly limits described in historical sections are removed.
@@ -933,3 +934,60 @@ The bonded Heltec reconnected without a PIN, all 256 contacts loaded, saved
 Wi-Fi reconnected, and bot settings reported no storage failure. No RF test
 messages were sent. Physical checkbox interaction and on-air replies for the
 new commands await the user's return with the second radio.
+
+
+## Quoted channel replies (0.21)
+
+Hold a channel message still for about 0.7 seconds, release to open Message
+details, then tap **Reply**. The keyboard opens in that same channel with a short
+sender/excerpt quote above the typing area. Type your reply and press **Send**.
+**Remove** removes the quote while keeping your typed answer. Replying to another
+message replaces the old quote and keeps your answer. Both incoming and your own
+channel messages can be quoted; your own messages use the radio's advertised
+name. The action does not open a private conversation.
+
+On the mesh this is ordinary readable text, for example:
+
+```text
+> Alice: Meet at the gate
+On my way
+```
+
+The quote uses at most 46 ASCII characters, including its line break, and shares
+the existing 120-character allowance with the answer. Long names/excerpts are
+shortened with `...`. Sending a quote with no answer is blocked. Delete stops
+at the quote boundary; use Remove to discard the quote itself. An existing
+answer in the same channel is retained. An open draft for a different channel
+or a private recipient is left untouched, with an explanation on screen. A
+draft that would exceed 120 characters is also left unchanged.
+
+The complete quote and answer are saved using the existing checksummed draft
+format and are frozen into the existing send tracker when Send is pressed.
+Channel-key validation still applies on restore. No automatic send or resend is
+introduced. Received/journal text now preserves line breaks, while labels and
+headers continue to flatten control characters. Quotes appear in a distinct
+colour with a vertical accent inside message bubbles, and scrolling still uses
+buffered display strips. The hold-versus-scroll gesture is unchanged.
+
+Checks cover quote formatting, whitespace, clipping, nested-quote replacement,
+120-character boundaries, quote-only prevention, newline decoding, channel
+selection and preserving unrelated drafts. Existing storage fixtures now round
+trip and restore a quote with a line break. Pixel checks compare full and strip
+rendering for quoted bubbles as well as the existing emoji samples. The USB
+preview uses only invented messages and a small strip buffer. No RF messages
+are transmitted by these checks.
+
+
+![Invented messages demonstrating a quoted reply](docs/quoted-reply-preview.png)
+
+### 0.21 device verification
+
+The final app (1,500,656 bytes; SHA-256
+`61396c924b7dbdc97d32caac4d68b304db75b16cbcd535ebf15606c915faf944`)
+was installed app-only with a verified flash hash. Startup fixtures passed,
+including channel/draft isolation and quoted-bubble strip rendering. The real
+LittleFS draft storage/restore fixtures passed with a multiline quoted reply.
+The bonded Heltec and saved Wi-Fi reconnected, and all 256 contacts loaded.
+The image above was captured from the CYD's renderer using invented messages;
+no real message content was exported and no RF test messages were sent. Human
+verification of the Reply action and on-air reception remains pending.

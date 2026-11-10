@@ -61,7 +61,7 @@ void botIncoming(const Reply& reply){
   else if(kind==6)botReply="[bot] ping";
   else if(kind==7||kind==8){botReply="[bot] Last Heltec battery: ";botReply+=haveBattery?String(batteryMv/1000.0f,2)+" V":"unavailable";if(kind==7)botReply+="; display uptime "+String(uint32_t(esp_timer_get_time()/60000000ULL))+" min. Repeater reach unconfirmed.";}
   else if(kind==9)botReply="[bot] Display uptime: "+String(uint32_t(esp_timer_get_time()/60000000ULL))+" min (since CYD restart).";
-  else if(kind==10)botReply="[bot] Mesh Pilot 0.20.0 / CYD + MeshCore companion.";
+  else if(kind==10)botReply="[bot] Mesh Pilot 0.21.0 / CYD + MeshCore companion.";
   botQueuedChannel=slot;botQueued=true;botDue=millis()+(config.interval==0?250+(esp_random()%501):3000+(esp_random()%5001));botExpires=millis()+(kind==4?45000:30000);
   if(kind==4){botReply="";requestWeather(weatherPlace.empty()?String(config.place):String(weatherPlace.c_str()),true);}
   botNotice(slot,"Reply waiting for a free radio.");Serial.println("Bot trigger matched; one bounded reply scheduled");

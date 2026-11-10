@@ -24,11 +24,14 @@ int bubbleCharWidth(char c){if(uint8_t(c)>=128)return 18;char glyph[2]={c,0};ret
 std::vector<BubbleLine> bubbleLines(const String& text){
   std::vector<BubbleLine> rows;int start=0,length=text.length();
   while(start<length){int end=start,width=0,space=-1,spaceWidth=0;
-    while(end<length){int next=bubbleCharWidth(text[end]);if(width+next>244)break;if(text[end]==' '){space=end;spaceWidth=width;}width+=next;end++;}
-    if(end<length&&space>start){end=space;width=spaceWidth;}if(end==start){end++;width=bubbleCharWidth(text[start]);}
-    rows.push_back({start,end,width});start=end;while(start<length&&text[start]==' ')start++;
+    while(end<length&&text[end]!='\n'){int next=bubbleCharWidth(text[end]);if(width+next>244)break;if(text[end]==' '){space=end;spaceWidth=width;}width+=next;end++;}
+    bool newline=end<length&&text[end]=='\n';
+    if(!newline&&end<length&&space>start){end=space;width=spaceWidth;}
+    if(end==start&&!newline){end++;width=bubbleCharWidth(text[start]);}
+    rows.push_back({start,end,width});start=end;if(start<length&&text[start]=='\n')start++;while(start<length&&text[start]==' ')start++;
   }if(rows.empty())rows.push_back({0,0,0});return rows;
 }
+
 void bubbleIcon(TFT_eSprite& t,uint8_t icon,int x,int y,uint16_t background){
   const uint16_t yellow=0xFEA0,red=0xF986;int cx=x+8,cy=y+8;
   if(icon==1){t.fillCircle(x+5,y+5,4,red);t.fillCircle(x+11,y+5,4,red);t.fillTriangle(x+1,y+6,x+15,y+6,x+8,y+15,red);}
@@ -54,10 +57,12 @@ void drawBubble(TFT_eSprite& target,const TimelineBubble& b,int y){
   bool outgoing=messages[b.message].outgoing;uint16_t background=outgoing?uint16_t(0x124B):uint16_t(0x2968);
   target.fillRoundRect(b.x,y,b.width,b.height-7,8,background);
   target.setTextSize(1);target.setTextColor(outgoing?uint16_t(0x8FFB):uint16_t(0xFD8E),background);target.drawString(b.sender,b.x+9,y+6,1);
+  int quoteEnd=b.body.startsWith("> ")?b.body.indexOf('\n'):-1;if(quoteEnd<4||quoteEnd>=48)quoteEnd=-1;
   for(size_t line=0;line<b.lines.size();line++){int yy=y+20+int(line)*19;if(yy+17<=0||yy>=target.height())continue;
-    auto& row=b.lines[line];int x=b.x+9;
+    auto& row=b.lines[line];int x=b.x+9;bool quoted=row.start<quoteEnd;
+    if(quoted)target.drawFastVLine(b.x+5,yy,17,ACCENT);
     for(int i=row.start;i<row.end;i++){uint8_t c=b.body[i];if(c>=128)bubbleIcon(target,c-128,x,yy,background);
-      else {char glyph[2]={char(c),0};target.setTextColor(TFT_WHITE,background);target.drawString(glyph,x,yy,2);}x+=bubbleCharWidth(c);}}
+      else {char glyph[2]={char(c),0};target.setTextColor(quoted?uint16_t(0xA65F):TFT_WHITE,background);target.drawString(glyph,x,yy,2);}x+=bubbleCharWidth(c);}}
   String meta=b.time,delivery=bubbleStatus(messages[b.message]);if(delivery.length())meta+="  "+delivery;
   target.setTextColor(0x5C7F,background);target.drawString(meta,b.x+b.width-9-meta.length()*6,y+6,1);
 }
@@ -147,9 +152,12 @@ bool scrollBandSelfTest(){
   TFT_eSprite reference(&lcd),band(&lcd);reference.setColorDepth(16);band.setColorDepth(16);
   if(!reference.createSprite(CHAT_WIDTH,96)||!band.createSprite(CHAT_WIDTH,8)){reference.deleteSprite();band.deleteSprite();return false;}
   messages.push_back({0,false,"",1,{},false,1});TimelineBubble b{};b.message=0;b.x=0;b.width=268;b.height=69;b.sender="Fixture";b.time="12:34";
-  b.body=bubbleBody("Hello [heart] [smile] [thumbs up] [warning] [check] [SOS] [cat] [hand] [laugh]");b.lines=bubbleLines(b.body);
-  reference.fillSprite(BG);drawBubble(reference,b,-5);bool ok=true;
-  for(int top=0;top<96;top+=8){band.fillSprite(BG);drawBubble(band,b,-5-top);for(int y=0;y<8;y++)for(int x=0;x<CHAT_WIDTH;x++)if(reference.readPixel(x,top+y)!=band.readPixel(x,y))ok=false;}
+  bool ok=true;const char* samples[]={"Hello [heart] [smile] [thumbs up] [warning] [check] [SOS] [cat] [hand] [laugh]","> Alice: Meet at the gate\nOn my way [thumbs up]"};
+  auto split=bubbleLines("abc\ndef");ok=split.size()==2&&split[0].start==0&&split[0].end==3&&split[1].start==4&&split[1].end==7;
+  for(const char* sample:samples){b.body=bubbleBody(sample);b.lines=bubbleLines(b.body);b.height=31+b.lines.size()*19;
+    reference.fillSprite(BG);drawBubble(reference,b,-5);
+    for(int top=0;top<96;top+=8){band.fillSprite(BG);drawBubble(band,b,-5-top);for(int y=0;y<8;y++)for(int x=0;x<CHAT_WIDTH;x++)if(reference.readPixel(x,top+y)!=band.readPixel(x,y))ok=false;}
+  }
   messages.clear();reference.deleteSprite();band.deleteSprite();return ok;
 }
 void chatPreview(){
@@ -157,12 +165,13 @@ void chatPreview(){
   auto savedMessages=std::move(messages);auto savedBubbles=std::move(timelineBubbles);auto savedPosition=chatPosition;String savedKey=timelineKey;
   Screen savedScreen=screen;uint8_t savedChannel=currentChannel;bool savedReset=resetChatView;uint32_t savedSequence=incomingSequence;
   messages.clear();screen=Screen::CHAT;currentChannel=0;resetChatView=true;
-  remember(0,false,"Alex: We are home safely [heart]",43200);remember(0,false,"Me: Good to hear! [thumbs up]",43260,nullptr,true);buildTimeline(false);
+  remember(0,false,"Alex: Meet at the bridge",43200);remember(0,false,"Me: > Alex: Meet at the bridge\nOn my way [thumbs up]",43260,nullptr,true);buildTimeline(false);
   TFT_eSprite preview(&lcd);preview.setColorDepth(16);
-  if(preview.createSprite(CHAT_WIDTH,CHAT_HEIGHT)){
-    preview.fillSprite(BG);for(const auto& b:timelineBubbles)drawBubble(preview,b,max(0,CHAT_HEIGHT-chatPosition.height)+b.top-chatPosition.offset);
+  if(preview.createSprite(CHAT_WIDTH,8)){
     Serial.printf("PREVIEW %d %d\n",CHAT_WIDTH,CHAT_HEIGHT);
-    uint8_t row[CHAT_WIDTH*2];for(int y=0;y<CHAT_HEIGHT;y++){for(int x=0;x<CHAT_WIDTH;x++){uint16_t pixel=preview.readPixel(x,y);row[x*2]=pixel>>8;row[x*2+1]=pixel;}Serial.write(row,sizeof(row));}Serial.println("\nPREVIEW END");preview.deleteSprite();
+    uint8_t row[CHAT_WIDTH*2];for(int top=0;top<CHAT_HEIGHT;top+=8){preview.fillSprite(BG);for(const auto& b:timelineBubbles)drawBubble(preview,b,max(0,CHAT_HEIGHT-chatPosition.height)+b.top-chatPosition.offset-top);
+      for(int y=0;y<8&&top+y<CHAT_HEIGHT;y++){for(int x=0;x<CHAT_WIDTH;x++){uint16_t pixel=preview.readPixel(x,y);row[x*2]=pixel>>8;row[x*2+1]=pixel;}Serial.write(row,sizeof(row));}}
+    Serial.println("\nPREVIEW END");preview.deleteSprite();
   }
   messages=std::move(savedMessages);timelineBubbles=std::move(savedBubbles);chatPosition=savedPosition;timelineKey=savedKey;screen=savedScreen;currentChannel=savedChannel;resetChatView=savedReset;incomingSequence=savedSequence;
 }

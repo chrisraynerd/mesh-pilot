@@ -80,7 +80,7 @@ void drawMessageDetail(){
   else explanation="No matching radio confirmation is recorded. This does not prove the message failed to arrive.";
   wrapped(explanation,12,106,3);
   if(detailHasMessage)wrapped(detailMessage.text,12,143,2);
-  smallButton(12,177,92,28,"Back");smallButton(110,177,110,28,"All sends");
+  smallButton(12,177,92,28,"Back");smallButton(110,177,110,28,"All sends");if(detailHasMessage&&!detailMessage.direct)smallButton(228,177,80,28,"Reply");
   lcd.setTextColor(sendResultsFailed?TFT_ORANGE:TFT_WHITE,BG);
   lcd.drawString(sendResultsFailed?"Result not safely saved; storage unavailable.":result?"Result recorded: "+fieldUtc(result->updated):"Hold a message still, then release for details.",12,215,1);
 }
@@ -171,6 +171,35 @@ void tickField(){
 void returnFromDetail(){
   if(detailReturn==Screen::SENT_RESULTS)drawSentResults();else if(detailReturn==Screen::INBOX)drawInbox();else if(detailReturn==Screen::DIRECT_CHAT)drawDirectChat();else drawChat();
 }
+bool replyToChannelMessage(){
+  if(!detailHasMessage||detailMessage.direct)return false;
+  String error;uint8_t channel=detailMessage.channel;
+  if(!ready||!linkActive)error="Reconnect the Heltec before replying.";
+  else if(channel>=maxChannels||!channels[channel].length()||!haveChannelKey[channel])error="Channel unavailable; reload channels first.";
+  else if(pending==Pending::SEND)error="Wait for the current send to finish.";
+  else if(draft.length()&&(composingDirect||currentChannel!=channel))error="Another draft is open; finish it first.";
+  String sender,body=detailMessage.text;int separator=body.indexOf(": ");
+  if(detailMessage.outgoing){sender=wireName.length()?displayText(wireName):"This node";if(separator>0&&separator<=64)body=body.substring(separator+2);}
+  else if(separator>0&&separator<=64){sender=body.substring(0,separator);body=body.substring(separator+2);}else sender="Unknown";
+  std::string quoted;
+  if(!error.length()&&!reply_tools::compose(sender.c_str(),body.c_str(),draft.c_str(),quoted))error="Shorten your draft to make room for the quote.";
+  if(error.length()){lcd.fillRect(12,211,296,24,BG);lcd.setTextColor(TFT_ORANGE,BG);lcd.drawString(error.substring(0,49),12,215,1);return false;}
+  composingDirect=false;currentChannel=channel;draft=quoted.c_str();upperCase=symbols=false;statusLine="Reply in this channel";
+  if(!fixtureMode){saveDraftNow();if(draftSaveFailed)statusLine="Draft save failed";}drawCompose();return true;
+}
+// Destination and draft preservation checks; no radio command is dispatched.
+bool channelReplySelfTest(){
+  if(!fixtureMode||client)return false;
+  bool wasReady=ready,wasLink=linkActive,wasDirect=composingDirect,hadDetail=detailHasMessage;uint8_t oldChannel=currentChannel,oldMax=maxChannels;
+  String oldDraft=draft,oldStatus=statusLine,oldChannelName=channels[1];bool oldKey=haveChannelKey[1];ChatMessage oldMessage=detailMessage;Screen oldScreen=screen;
+  ready=linkActive=true;maxChannels=2;channels[1]="#fixture";haveChannelKey[1]=true;composingDirect=false;currentChannel=0;draft="";detailHasMessage=true;detailMessage=ChatMessage{};detailMessage.channel=1;detailMessage.text="Alice: Meet at the gate";
+  bool ok=replyToChannelMessage()&&currentChannel==1&&!composingDirect&&draft=="> Alice: Meet at the gate\n"&&screen==Screen::COMPOSE;
+  draft+="On my way";detailMessage.text="Bob: Bring a torch";ok=replyToChannelMessage()&&draft=="> Bob: Bring a torch\nOn my way"&&ok;
+  currentChannel=0;draft="Keep other channel draft";ok=!replyToChannelMessage()&&currentChannel==0&&draft=="Keep other channel draft"&&ok;
+  composingDirect=true;draft="Keep private draft";ok=!replyToChannelMessage()&&composingDirect&&draft=="Keep private draft"&&ok;
+  detailMessage.direct=true;ok=!replyToChannelMessage()&&ok;
+  ready=wasReady;linkActive=wasLink;composingDirect=wasDirect;currentChannel=oldChannel;maxChannels=oldMax;channels[1]=oldChannelName;haveChannelKey[1]=oldKey;draft=oldDraft;statusLine=oldStatus;detailHasMessage=hadDetail;detailMessage=oldMessage;screen=oldScreen;return ok;
+}
 bool fieldTouch(int x,int y){
   if(screen==Screen::NETWORK){
     if(y>=4&&y<=30){if(x>=164&&x<=224)drawSentResults();else if(x>=230&&x<=308)drawCoverage();}
@@ -180,7 +209,7 @@ bool fieldTouch(int x,int y){
     if(y>=42&&y<170&&x>=12&&x<=308&&(y-42)%32<28){int i=int(sendResults.size())-1-(sentPage*4+(y-42)/32);if(i>=0)inspectSend(sendResults[i].timestamp);}
     else if(y>=177&&y<=205){if(x>=12&&x<=80){sentPage--;drawSentResults();}else if(x>=84&&x<=152){sentPage++;drawSentResults();}else if(x>=216&&x<=308)drawNetwork();}return true;
   }
-  if(screen==Screen::MESSAGE_DETAIL){if(y>=177&&y<=205){if(x>=12&&x<=104)returnFromDetail();else if(x>=110&&x<=220)drawSentResults();}return true;}
+  if(screen==Screen::MESSAGE_DETAIL){if(y>=177&&y<=205){if(x>=12&&x<=104)returnFromDetail();else if(x>=110&&x<=220)drawSentResults();else if(x>=228&&x<=308)replyToChannelMessage();}return true;}
   if(screen==Screen::COVERAGE){
     if(y>=4&&y<=30&&x>=144&&x<=224){drawAntennaList();return true;}
     if(y>=4&&y<=30&&x>=230&&x<=308){coverageInfo="";drawCoverageNew();}

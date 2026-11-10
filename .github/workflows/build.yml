@@ -28,6 +28,10 @@ jobs:
         run: |
           c++ -std=c++11 -I src tests/weather_rules.cpp -o /tmp/mesh-pilot-weather-check
           /tmp/mesh-pilot-weather-check
+      - name: Check quoted replies and text decoding
+        run: |
+          c++ -std=c++11 -I src tests/reply_rules.cpp -o /tmp/mesh-pilot-reply-check
+          /tmp/mesh-pilot-reply-check
       - name: Build E32R28T firmware
         run: pio run
       - name: Save firmware artifacts

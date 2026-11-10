@@ -12,6 +12,7 @@
 #include "protocol.h"
 #include "diagnostics.h"
 #include "text_render.h"
+#include "reply_tools.h"
 #include "clock_tools.h"
 #include "send_tracking.h"
 #include <time.h>
@@ -251,6 +252,7 @@ void drawCoverage();
 void drawCoverageNew();
 void drawCoverageTest();
 void inspectMessage(uint64_t id);
+bool channelReplySelfTest();
 bool fieldTouch(int x,int y);
 bool fieldStorageSelfTest();
 void noteFieldProof(uint8_t kind,const String& name);
@@ -352,7 +354,7 @@ void button(int x, int y, int w, const char* label) {
 }
 void home() {
   screen=Screen::HOME;
-  header("Mesh Pilot / 0.15.1");
+  header("Mesh Pilot / 0.21.0");
   lcd.drawString("Screen + touch ready",12,48,2);
   lcd.drawString("Heltec stays on MeshCore firmware.",12,72,2);
   lcd.drawString("Turn on your Heltec, then scan.",12,96,2);
@@ -617,7 +619,7 @@ void tickClock() {
 #include "antenna_store.h"
 
 String packetText(const uint8_t* p,size_t n) {
-  return String(text_render::ascii(p,n).c_str());
+  return String(text_render::ascii(p,n,true).c_str());
 }
 void remember(uint8_t ch,bool dm,const String& text,uint32_t timestamp,const uint8_t* peer=nullptr,bool outgoing=false) {
   if(messages.size()>=80) messages.erase(messages.begin());
@@ -763,7 +765,8 @@ void wrapped(const String& text,int x,int y,int maxLines) {
   // Fixed-width font makes a dependable layout on the small resistive screen.
   lcd.setTextFont(1);lcd.setTextSize(1);lcd.setTextColor(TFT_WHITE,BG);
   int pos=0;for(int line=0;line<maxLines && pos<int(text.length());line++) {
-    lcd.drawString(text.substring(pos,pos+48),x,y+line*11,1);pos+=48;
+    int end=min(pos+48,int(text.length())),newline=text.indexOf('\n',pos);if(newline>=pos&&newline<end)end=newline;
+    lcd.drawString(text.substring(pos,end),x,y+line*11,1);pos=end;if(pos<int(text.length())&&text[pos]=='\n')pos++;
   }
   if(pos<int(text.length())) lcd.drawString("...",x+282,y+(maxLines-1)*11,1);
 }
@@ -816,9 +819,12 @@ void drawContactList(bool nodes) {
 }
 void drawDirectPicker() { drawContactList(false); }
 void drawCompose() {
-  screen=Screen::COMPOSE;header(("To: "+displayText(composingDirect?directName:channels[currentChannel])).substring(0,36).c_str());
-  wrapped(draft.length()>96?draft.substring(draft.length()-96):draft,12,40,2);
-  lcd.setTextColor(TFT_WHITE,BG);lcd.drawString((String(draft.length())+"/120").c_str(),260,67,1);
+  screen=Screen::COMPOSE;size_t quoted=composingDirect?0:reply_tools::prefix(draft.c_str());
+  header(((quoted?"Reply: ":"To: ")+displayText(composingDirect?directName:channels[currentChannel])).substring(0,quoted?23:36).c_str());
+  if(quoted){smallButton(232,4,76,26,"Remove");lcd.setTextColor(0x5C7F,BG);lcd.drawString(draft.substring(0,quoted-1),12,39,1);
+    String body=draft.substring(quoted);wrapped(body.length()>96?body.substring(body.length()-96):body,12,49,2);
+  }else wrapped(draft.length()>96?draft.substring(draft.length()-96):draft,12,40,2);
+  lcd.setTextColor(TFT_WHITE,BG);lcd.drawString((String(draft.length())+"/120").c_str(),260,quoted?71:67,1);
   const char* rowsNormal[]={"qwertyuiop","asdfghjkl","zxcvbnm.,?"};
   const char* rowsSymbols[]={"1234567890","!@#$%&*()","-_=+/:;?'"};
   for(int row=0;row<3;row++) {
@@ -862,6 +868,7 @@ void recordOutgoing(bool confirmed) {
 
 void sendDraft() {
   if(!draft.length())return;
+  if(!composingDirect&&reply_tools::prefix(draft.c_str())&&!reply_tools::hasBody(draft.c_str())){statusLine="Write a reply first";drawCompose();return;}
   if(pending!=Pending::NONE) { statusLine="Radio busy; tap Send again";drawCompose();return; }
   if(!ready||!client->isConnected()) { statusLine="Disconnected; draft kept";drawCompose();return; }
   uint32_t stamp=max(nowSeconds(),lastOutgoingTimestamp+1);
@@ -1149,7 +1156,7 @@ void processReplies() {
 }
 void setup() {
   Serial.begin(115200);delay(300);
-  Serial.println("Mesh Pilot 0.20.0 / E32R28T");
+  Serial.println("Mesh Pilot 0.21.0 / E32R28T");
   pinMode(21,OUTPUT);digitalWrite(21,HIGH);
   lcd.init();lcd.setRotation(1);
   touchBus.begin(25,39,32,33);touch.begin(touchBus);touch.setRotation(1);
@@ -1158,7 +1165,7 @@ void setup() {
   ledcSetup(7,5000,8);ledcAttachPin(21,7);ledcWrite(7,brightness);lastTouchAt=millis();
   clockBase=max(uint32_t(BUILD_UNIX_TIME),uint32_t(prefs.getULong("timeLast",0)));clockAt=millis();
   fixtureMode=true;
-  bool checksPassed=protocol::selfTest()&&diagnostics::selfTest()&&text_render::selfTest()&&clock_tools::selfTest()&&send_tracking::selfTest()&&management::selfTest()&&managementUiSelfTest()&&terminal_tools::selfTest()&&terminalSelfTest()&&draft_tools::selfTest()&&scroll_tools::selfTest()&&scrollUiSelfTest()&&scrollBandSelfTest()&&discovery::selfTest()&&discoveryUiSelfTest()&&field::selfTest()&&antenna::selfTest()&&bot::selfTest()&&botUiSelfTest()&&weather::selfTest()&&weatherJsonSelfTest()&&replyQueueSelfTest();
+  bool checksPassed=protocol::selfTest()&&diagnostics::selfTest()&&text_render::selfTest()&&reply_tools::selfTest()&&channelReplySelfTest()&&clock_tools::selfTest()&&send_tracking::selfTest()&&management::selfTest()&&managementUiSelfTest()&&terminal_tools::selfTest()&&terminalSelfTest()&&draft_tools::selfTest()&&scroll_tools::selfTest()&&scrollUiSelfTest()&&scrollBandSelfTest()&&discovery::selfTest()&&discoveryUiSelfTest()&&field::selfTest()&&antenna::selfTest()&&bot::selfTest()&&botUiSelfTest()&&weather::selfTest()&&weatherJsonSelfTest()&&replyQueueSelfTest();
   fixtureMode=false;
   if(!checksPassed){Serial.println("Boot fixtures FAILED");header("Protocol/text/send check failed");while(true)delay(1000);}
   Serial.println("Message, network, Unicode, clock, delivery, management, terminal, scrolling, nearby discovery, field, antenna and bot fixtures passed");
@@ -1247,6 +1254,7 @@ void loop() {
       }
     } else if(screen==Screen::COMPOSE) {
       if(pending==Pending::SEND) { /* Ignore edits until the send result. */ }
+      else if(y>=4&&y<=30&&x>=232&&x<=308&&!composingDirect&&reply_tools::prefix(draft.c_str())){draft=draft.substring(reply_tools::prefix(draft.c_str()));statusLine="Quote removed";drawCompose();}
       else if(y>=83&&y<179&&x>=12&&x<308) {
         int row=(y-83)/32;
         const char* normal[]={"qwertyuiop","asdfghjkl","zxcvbnm.,?"};
@@ -1258,7 +1266,7 @@ void loop() {
         if(x>=12&&x<=58)upperCase=!upperCase;
         else if(x>=62&&x<=108)symbols=!symbols;
         else if(x>=112&&x<=212&&draft.length()<120)draft+=' ';
-        else if(x>=216&&x<=308&&draft.length())draft.remove(draft.length()-1);
+        else if(x>=216&&x<=308&&draft.length()>(composingDirect?0:reply_tools::prefix(draft.c_str())))draft.remove(draft.length()-1);
         drawCompose();
       } else if(y>=214&&y<=237) {
         if(x>=12&&x<=80){if(composingDirect)drawDirectChat();else drawChat();}

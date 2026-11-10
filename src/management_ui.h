@@ -104,7 +104,7 @@ void returnEditor() {
 }
 void drawTextEditor() {
   screen=Screen::TEXT_EDIT;
-  const char* titles[]={"Find contact (blank clears)","Channel name","Channel key: 32 hex digits","Contact name","Public key: 64 hex digits","Name this test location","Antenna test location","Name antenna A","Name antenna B","Bot location label","Bot keyword","Bot reply","Wi-Fi name (SSID)","Wi-Fi password"};header(textPurpose>=0&&textPurpose<int(sizeof(titles)/sizeof(titles[0]))?titles[textPurpose]:"Edit text");
+  const char* titles[]={"Find contact (blank clears)","Channel name","Channel key: 32 hex digits","Contact name","Public key: 64 hex digits","Name this test location","Antenna test location","Name antenna A","Name antenna B","Bot location label","Bot aliases (comma separated)","Bot reply","Wi-Fi name (SSID)","Wi-Fi password"};header(textPurpose>=0&&textPurpose<int(sizeof(titles)/sizeof(titles[0]))?titles[textPurpose]:"Edit text");
   wrapped(textPurpose==13?String("********************************").substring(0,min(size_t(32),size_t(editText.length()))):displayText(editText),12,40,3);
   const char* normal[]={"qwertyuiop","asdfghjkl","zxcvbnm.,?"};
   const char* special[]={"1234567890","!@#$%&*()","-_=+/:;?'"};

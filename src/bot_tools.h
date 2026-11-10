@@ -20,10 +20,19 @@ inline bool parseAny(const uint8_t* p,size_t n,Trigger& out){
   out.identity=hash(p+base,1);out.identity=hash(p+base+3,n-base-3,out.identity);return true;
 }
 inline bool parse(const uint8_t* p,size_t n,Trigger& out){return parseAny(p,n,out)&&out.body=="test";}
-inline bool keyword(const std::string& word){if(word.empty()||word.size()>16||word=="help")return false;for(char c:word)if(!((c>='a'&&c<='z')||(c>='0'&&c<='9')||c=='_'||c=='-'))return false;return true;}
-inline int command(const Trigger& t,uint8_t flags,const char* test,const char* a,const char* b){
-  if((flags&1)&&t.body==test)return 0;if((flags&2)&&t.body=="help")return 1;
-  if((flags&4)&&t.body==a)return 2;if((flags&8)&&t.body==b)return 3;return -1;
+// Aliases are complete commands, never substring matches. One optional ! is accepted.
+inline std::string normalized(std::string s){size_t a=s.find_first_not_of(" \r\n\t"),b=s.find_last_not_of(" \r\n\t");if(a==std::string::npos)return "";s=s.substr(a,b-a+1);for(auto& c:s)c=tolower(static_cast<unsigned char>(c));if(s[0]=='!')s.erase(0,1);return s;}
+inline bool keyword(const std::string& word){if(word.empty()||word.size()>16)return false;for(char c:word)if(!((c>='a'&&c<='z')||(c>='0'&&c<='9')||c=='_'||c=='-'))return false;return true;}
+inline bool aliases(const std::string& list){if(list.empty()||list.size()>16)return false;size_t a=0;while(true){size_t b=list.find(',',a);auto word=list.substr(a,b==std::string::npos?b:b-a);if(!keyword(word))return false;if(b==std::string::npos)return true;a=b+1;}}
+inline bool matches(const std::string& body,const char* list){size_t a=0;std::string words=list;while(a<words.size()){size_t b=words.find(',',a);if(body==words.substr(a,b==std::string::npos?b:b-a))return true;if(b==std::string::npos)break;a=b+1;}return false;}
+inline bool overlap(const char* a,const char* b){std::string words=a;size_t i=0;while(i<words.size()){size_t end=words.find(',',i);if(matches(words.substr(i,end==std::string::npos?end:end-i),b))return true;if(end==std::string::npos)break;i=end+1;}return false;}
+inline const char* fixedAliases(int kind){switch(kind){case 1:return "help,commands";case 4:return "wx,weather";case 5:return "ping";case 6:return "pong";case 7:return "status";case 8:return "battery,batt";case 9:return "uptime";case 10:return "version,ver";default:return "";}}
+inline int command(const Trigger& t,uint16_t flags,const char* test,const char* a,const char* b){
+  auto body=normalized(t.body);
+  if((flags&1)&&matches(body,test))return 0;
+  // Existing custom names keep precedence over newly introduced built-in aliases.
+  if((flags&4)&&matches(body,a))return 2;if((flags&8)&&matches(body,b))return 3;
+  for(int i=1;i<=10;i++)if(i!=2&&i!=3&&i!=4&&(flags&(1u<<i))&&matches(body,fixedAliases(i)))return i;return -1;
 }
 inline bool validInterval(uint8_t seconds){return seconds==0||seconds==5||seconds==10||seconds==15||seconds==30||seconds==60;}
 struct Limits {
@@ -42,7 +51,12 @@ inline bool selfTest(){
   uint32_t id=t.identity;frame[1]=4;frame[5]=1;if(!parse(frame,sizeof(frame),t)||t.identity!=id)return false;
   frame[17]='!';if(parse(frame,sizeof(frame),t))return false;frame[17]='t';frame[5]=255;
   if(!parse(frame,sizeof(frame),t)||t.hops!=-1)return false;
-  t.body="meeting";if(command(t,7,"test","meeting","")!=2||command(t,3,"test","meeting","")!=-1||!keyword("meeting")||keyword("help")||keyword("two words")||keyword("[bot]"))return false;
+  t.body="meeting";if(command(t,7,"test","meeting","")!=2||command(t,3,"test","meeting","")!=-1||!keyword("meeting")||!keyword("help")||keyword("two words")||keyword("[bot]"))return false;
+  if(!aliases("test,testing")||aliases("test,,testing")||aliases("test,")||aliases("two words"))return false;
+  for(const char* word:{"test","TEST","testing","TESTING","!Test","!testing"}){t.body=word;if(command(t,1,"test,testing","","")!=0)return false;}
+  for(const char* word:{"contest","testing now","!!test","[bot] test","! test"}){t.body=word;if(command(t,2047,"test,testing","info,about","")!=-1)return false;}
+  for(int kind=5;kind<=10;kind++){std::string word=fixedAliases(kind);t.body="!"+word.substr(0,word.find(','));if(command(t,1u<<kind,"test,testing","","")!=kind||command(t,0,"test,testing","","")!=-1)return false;}
+  t.body="ABOUT";if(command(t,4,"test,testing","info,about","")!=2||!overlap("test,testing","testing,foo")||overlap("test","testing"))return false;
   Limits limits;if(limits.remaining(0,2,30)||limits.duplicate(1,2))return false;
   limits.remember(1,2);limits.dispatched(0,2);
   if(!limits.duplicate(1,2)||limits.duplicate(2,2)||limits.duplicate(1,3))return false;

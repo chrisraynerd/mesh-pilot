@@ -154,16 +154,15 @@ void localWeatherTest(){
   if(fixtureMode)return;screen=Screen::WEATHER_RESULT;header("Weather check / no radio send");localWeatherInfo="Looking up weather...";wrapped(localWeatherInfo,12,45,4);smallButton(12,177,100,28,"Back");requestWeather(String(botChannels[botSelected].place),false);
 }
 void drawWeatherSettings(){
-  screen=Screen::WEATHER_SETTINGS;header("Weather bot / this channel");auto& c=botChannels[botSelected];
-  smallButton(12,42,296,30,c.flags&16?"Weather ON - tap to disable":"Weather OFF - tap to enable");
+  screen=Screen::WEATHER_SETTINGS;header("Weather / channel command");auto& c=botChannels[botSelected];
+  botCheckbox(12,42,296,"     Enable weather command",c.flags&16);
   lcd.setTextColor(TFT_WHITE,BG);lcd.drawString("Triggers: wx or weather, any case",12,85,1);lcd.drawString(("Default: "+String(c.place)).substring(0,49),12,104,1);lcd.drawString("Example: wx Ramsbottom (UK places)",12,123,1);lcd.drawString("Open-Meteo model data; time shown in UTC.",12,142,1);
   smallButton(12,177,80,28,"Back");smallButton(98,177,96,28,"Wi-Fi");smallButton(200,177,108,28,"Check here");lcd.setTextColor(TFT_WHITE,BG);lcd.drawString(botInfo.substring(0,49),12,215,1);
 }
 bool internetTouch(int x,int y){
   if(screen==Screen::WEATHER_RESULT){if(x>=12&&x<=112&&y>=177&&y<=205)drawWifi();return true;}
   if(screen==Screen::WEATHER_SETTINGS){
-    if(x>=12&&x<=308&&y>=42&&y<=72){auto& c=botChannels[botSelected];bool conflict=!strcmp(c.test,"wx")||!strcmp(c.test,"weather");for(int i=0;i<2;i++)if(!strcmp(c.words[i],"wx")||!strcmp(c.words[i],"weather"))conflict=true;
-      if(!(c.flags&16)&&conflict)botInfo="Rename your existing wx/weather keyword first.";else{c.flags^=16;stopEditedBot();saveBotSettings();}drawWeatherSettings();}
+    if(x>=12&&x<=308&&y>=42&&y<=72){toggleBotCommand(4);drawWeatherSettings();}
     else if(y>=177&&y<=205){if(x>=12&&x<=92)drawBotCommands();else if(x>=98&&x<=194)drawWifi();else if(x>=200&&x<=308)localWeatherTest();}return true;
   }
   if(screen!=Screen::WIFI_SETUP)return false;

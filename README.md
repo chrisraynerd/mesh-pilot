@@ -2,7 +2,10 @@
 
 An independent, open-source, phone-free MeshCore terminal for ESP32 touchscreens.
 
-Current development version: **0.19.0**.
+Current development version: **0.20.0**.
+
+See [current bot controls and commands](#checkbox-bots-and-command-aliases-020).
+Versioned sections below also document earlier behavior.
 Bot replies now use a configurable per-channel interval (30 seconds by default);
 the older per-sender and hourly limits described in historical sections are removed.
 Start with [the short user guide](QUICK-START.md).
@@ -852,5 +855,81 @@ was installed with verified hashes. All startup fixtures passed, including
 interval/deduplication admission, rapid bot tracking and manual-message protection.
 The isolated settings/corruption/migration tests passed on the CYD. The bonded
 Heltec reconnected, all 256 contacts loaded and Wi-Fi reconnected using its saved
-credentials. Human verification of the interval control and rapid on-air requests
-remains pending.
+credentials. The user confirmed that the interval control works and both rapid on-air test requests received replies.
+
+
+## Checkbox bots and command aliases (0.20)
+
+Setup > Bots now has a checkbox for each channel. Tap the checkbox to switch
+that channel's bot on/off; tap its name to open its settings. The channel's
+Commands screen contains one paged list, including Weather. Tick a command to
+enable it, or tap its name for details and editable fields. Weather has a detail
+screen with Wi-Fi and local lookup controls, rather than a separate command list.
+
+Editing a keyword, reply, location or command checkbox keeps the channel bot's
+master checkbox unchanged. An unsent pending reply for the edited channel is
+cancelled so it cannot send obsolete content. Settings-save failures pause bots
+and show an error. Full CYD restarts still leave channel masters off; saved
+command selections and reply intervals are retained. Enable your chosen channel
+after an update. New built-in commands are initially unchecked.
+
+| Command | Accepted triggers | Reply |
+| --- | --- | --- |
+| Reception test | `test`, `testing` by default; editable | Place label, received hop count and last-hop SNR when supplied |
+| Help | `help`, `commands` | Enabled commands for this channel |
+| Info / custom reply 1 | Editable; new configurations start with `info,about` | Your saved text, up to 100 characters |
+| Custom reply 2 | Editable | A second saved reply, such as meeting instructions |
+| Weather | `wx`, `weather`, optionally followed by a UK place | Open-Meteo data via saved Wi-Fi, or labelled cached data |
+| Ping | `ping` | `[bot] pong` |
+| Pong | `pong` | `[bot] ping` |
+| Status | `status` | Last available Heltec battery reading and CYD uptime; repeater reach remains unconfirmed |
+| Battery | `battery`, `batt` | Last available Heltec battery voltage, or unavailable |
+| Uptime | `uptime` | Time since CYD restart, in minutes |
+| Version | `version`, `ver` | Mesh Pilot version |
+
+All commands ignore case and allow one optional `!` prefix. `Test`, `TESTING`,
+`!test` and `!Testing` work with the default reception aliases. `!wx Ramsbottom`
+also works. Editable aliases are comma-separated, with a combined 16-character
+limit per field: for example `test,testing` or `info,about`. Matching uses the
+complete command; `contest` and `testing antenna` will not accidentally trigger
+`test`. Aliases already assigned to another command cannot be newly assigned.
+Existing custom names retain priority over newly added built-ins; enabling a
+conflicting built-in is refused with a visible explanation. Bot replies start
+with `[bot]`, preventing their own `pong` text from matching a `pong` request.
+
+Old custom replies are preserved, including empty slots. To use Info on an
+existing configuration, edit that custom slot's triggers and reply yourself.
+The 30-second default and configurable Off/5/10/15/30/60-second interval remain
+per channel. Genuine repeat-copy protection is unchanged; fresh messages with
+new timestamps can receive new replies. Only incoming messages from another
+radio trigger bots. Old queued history is drained before an enabled bot starts.
+
+MPB5 stores the expanded command-switch mask without expanding alias/reply
+buffers. Readers migrate MPB1–MPB4, keeping locations, custom replies, weather
+selection and saved intervals. Old `test` gains the `testing` alias unless that
+word already belongs to a custom reply. Wi-Fi preferences, bonds, channels,
+message history and drafts are outside this settings file and are not erased.
+
+Checks cover complete-command boundaries, case, optional prefixes, aliases,
+independent enable masks, each new offline reply, unchanged manual-send
+protection, and keeping an enabled master on after editing. Isolated device
+storage fixtures cover the new high command bits, corruption rejection, all
+intervals, migration from all four earlier formats, and restoration of the
+real settings. They do not transmit RF.
+
+The isolated settings check compares stored fields rather than compiler alignment
+bytes. It reserves its decode buffer before changing the fixture state and reuses
+that buffer for restoration, avoiding a new large allocation during Wi-Fi work.
+
+
+### 0.20 device verification
+
+The final app (1,492,032 bytes; SHA-256
+`ced10ddf76754654f6369f0ed7dc192c8bb972b933a638fe367b3544a4eae03f`)
+was installed app-only at 0x10000 with its flash hash verified. All startup
+fixtures passed. The isolated settings/corruption/migration fixtures passed
+twice while Wi-Fi was connected, restoring the real configuration each time.
+The bonded Heltec reconnected without a PIN, all 256 contacts loaded, saved
+Wi-Fi reconnected, and bot settings reported no storage failure. No RF test
+messages were sent. Physical checkbox interaction and on-air replies for the
+new commands await the user's return with the second radio.

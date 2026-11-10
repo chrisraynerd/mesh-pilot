@@ -62,7 +62,7 @@ void drawSentResults(){
   lcd.setTextColor(sendResultsFailed?TFT_ORANGE:TFT_WHITE,BG);lcd.drawString(sendResultsFailed?"Result storage unavailable; shown from RAM.":("Latest "+String(sendResults.size())+" send attempts; tap for details."),12,215,1);
 }
 void drawMessageDetail(){
-  screen=Screen::MESSAGE_DETAIL;header("Message details");
+  screen=Screen::MESSAGE_DETAIL;header("Message details");smallButton(224,4,84,26,"All sends");
   auto* result=findSendResult(inspectedTimestamp);
   if(detailHasMessage&&(!detailMessage.outgoing||(result&&(result->direct!=detailMessage.direct||(!result->direct&&result->channel!=detailMessage.channel)||(result->direct&&memcmp(result->peer,detailMessage.peer,6))))))result=nullptr;
   lcd.setTextColor(TFT_WHITE,BG);lcd.drawString(fieldUtc(inspectedTimestamp)+(result&&result->approximate?" (approx)":""),12,44,1);
@@ -80,7 +80,7 @@ void drawMessageDetail(){
   else explanation="No matching radio confirmation is recorded. This does not prove the message failed to arrive.";
   wrapped(explanation,12,106,3);
   if(detailHasMessage)wrapped(detailMessage.text,12,143,2);
-  smallButton(12,177,92,28,"Back");smallButton(110,177,110,28,"All sends");if(detailHasMessage&&!detailMessage.direct)smallButton(228,177,80,28,"Reply");
+  smallButton(12,177,92,28,"Back");if(detailHasMessage&&!detailMessage.direct)smallButton(110,173,198,36,"Reply in channel");
   lcd.setTextColor(sendResultsFailed?TFT_ORANGE:TFT_WHITE,BG);
   lcd.drawString(sendResultsFailed?"Result not safely saved; storage unavailable.":result?"Result recorded: "+fieldUtc(result->updated):"Hold a message still, then release for details.",12,215,1);
 }
@@ -209,7 +209,10 @@ bool fieldTouch(int x,int y){
     if(y>=42&&y<170&&x>=12&&x<=308&&(y-42)%32<28){int i=int(sendResults.size())-1-(sentPage*4+(y-42)/32);if(i>=0)inspectSend(sendResults[i].timestamp);}
     else if(y>=177&&y<=205){if(x>=12&&x<=80){sentPage--;drawSentResults();}else if(x>=84&&x<=152){sentPage++;drawSentResults();}else if(x>=216&&x<=308)drawNetwork();}return true;
   }
-  if(screen==Screen::MESSAGE_DETAIL){if(y>=177&&y<=205){if(x>=12&&x<=104)returnFromDetail();else if(x>=110&&x<=220)drawSentResults();else if(x>=228&&x<=308)replyToChannelMessage();}return true;}
+  if(screen==Screen::MESSAGE_DETAIL){
+    if(y>=2&&y<=32&&x>=220&&x<=312)drawSentResults();
+    else if(y>=171&&y<=211){if(x>=8&&x<=104)returnFromDetail();else if(x>=108&&x<=312)replyToChannelMessage();}return true;
+  }
   if(screen==Screen::COVERAGE){
     if(y>=4&&y<=30&&x>=144&&x<=224){drawAntennaList();return true;}
     if(y>=4&&y<=30&&x>=230&&x<=308){coverageInfo="";drawCoverageNew();}

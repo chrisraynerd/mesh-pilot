@@ -2,7 +2,7 @@
 
 An independent, open-source, phone-free MeshCore terminal for ESP32 touchscreens.
 
-Current development version: **0.21.0**.
+Current development version: **0.21.1**.
 
 See [quoted channel replies](#quoted-channel-replies-021) and
 [current bot controls and commands](#checkbox-bots-and-command-aliases-020).
@@ -989,5 +989,38 @@ including channel/draft isolation and quoted-bubble strip rendering. The real
 LittleFS draft storage/restore fixtures passed with a multiline quoted reply.
 The bonded Heltec and saved Wi-Fi reconnected, and all 256 contacts loaded.
 The image above was captured from the CYD's renderer using invented messages;
-no real message content was exported and no RF test messages were sent. Human
-verification of the Reply action and on-air reception remains pending.
+no real message content was exported and no RF test messages were sent. The user
+confirmed that quoted replying works. On-air reception was not independently
+verified; the reported button-activation difficulty prompted the 0.21.1 patch.
+
+
+## More forgiving button presses (0.21.1)
+
+Message details now has a **Reply in channel** button measuring 198 x 36 pixels,
+with a small surrounding touch allowance. **All sends** moves to the top-right;
+Back stays at the bottom-left. The channel quote/reply behavior is unchanged.
+
+Button presses now collect five calibrated coordinate readings spaced 4 ms
+apart. At least three must agree within 8 pixels of the median in both axes.
+Transient first-contact outliers are rejected; an unsettled contact can be
+sampled again while the stylus is still down, rather than being immediately
+latched as a missed press. The existing press latch remains in use after a
+button event. Calibration and the touch-controller pressure threshold are not
+changed, and touch coordinates are never logged.
+
+The chat drag handler still runs first and retains its existing movement and
+700 ms hold thresholds, so scrolling does not use the button sampler. The
+screen-wake tap also retains its existing behavior. Startup and CI fixtures
+exercise stable readings, first-contact outliers, insufficient contact, moving
+strokes and coordinate pairs that must not form a false button target.
+
+
+### 0.21.1 device verification
+
+The final app (1,501,520 bytes; SHA-256
+`f5b44f80321eb791042749c0685d28b2a6b4e99c1feb45ee00ab26e7a51fe216`)
+was installed app-only with its flash hash verified. All startup fixtures passed,
+including the new touch-cluster cases and existing hold/scroll checks. The bonded
+Heltec and saved Wi-Fi reconnected and all 256 contacts loaded. No RF test
+messages were sent. Physical verification of Reply/keyboard responsiveness
+remains pending.

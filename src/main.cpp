@@ -13,6 +13,7 @@
 #include "diagnostics.h"
 #include "text_render.h"
 #include "reply_tools.h"
+#include "touch_tools.h"
 #include "clock_tools.h"
 #include "send_tracking.h"
 #include <time.h>
@@ -354,7 +355,7 @@ void button(int x, int y, int w, const char* label) {
 }
 void home() {
   screen=Screen::HOME;
-  header("Mesh Pilot / 0.21.0");
+  header("Mesh Pilot / 0.21.1");
   lcd.drawString("Screen + touch ready",12,48,2);
   lcd.drawString("Heltec stays on MeshCore firmware.",12,72,2);
   lcd.drawString("Turn on your Heltec, then scan.",12,96,2);
@@ -1156,7 +1157,7 @@ void processReplies() {
 }
 void setup() {
   Serial.begin(115200);delay(300);
-  Serial.println("Mesh Pilot 0.21.0 / E32R28T");
+  Serial.println("Mesh Pilot 0.21.1 / E32R28T");
   pinMode(21,OUTPUT);digitalWrite(21,HIGH);
   lcd.init();lcd.setRotation(1);
   touchBus.begin(25,39,32,33);touch.begin(touchBus);touch.setRotation(1);
@@ -1165,7 +1166,7 @@ void setup() {
   ledcSetup(7,5000,8);ledcAttachPin(21,7);ledcWrite(7,brightness);lastTouchAt=millis();
   clockBase=max(uint32_t(BUILD_UNIX_TIME),uint32_t(prefs.getULong("timeLast",0)));clockAt=millis();
   fixtureMode=true;
-  bool checksPassed=protocol::selfTest()&&diagnostics::selfTest()&&text_render::selfTest()&&reply_tools::selfTest()&&channelReplySelfTest()&&clock_tools::selfTest()&&send_tracking::selfTest()&&management::selfTest()&&managementUiSelfTest()&&terminal_tools::selfTest()&&terminalSelfTest()&&draft_tools::selfTest()&&scroll_tools::selfTest()&&scrollUiSelfTest()&&scrollBandSelfTest()&&discovery::selfTest()&&discoveryUiSelfTest()&&field::selfTest()&&antenna::selfTest()&&bot::selfTest()&&botUiSelfTest()&&weather::selfTest()&&weatherJsonSelfTest()&&replyQueueSelfTest();
+  bool checksPassed=protocol::selfTest()&&diagnostics::selfTest()&&text_render::selfTest()&&touch_tools::selfTest()&&reply_tools::selfTest()&&channelReplySelfTest()&&clock_tools::selfTest()&&send_tracking::selfTest()&&management::selfTest()&&managementUiSelfTest()&&terminal_tools::selfTest()&&terminalSelfTest()&&draft_tools::selfTest()&&scroll_tools::selfTest()&&scrollUiSelfTest()&&scrollBandSelfTest()&&discovery::selfTest()&&discoveryUiSelfTest()&&field::selfTest()&&antenna::selfTest()&&bot::selfTest()&&botUiSelfTest()&&weather::selfTest()&&weatherJsonSelfTest()&&replyQueueSelfTest();
   fixtureMode=false;
   if(!checksPassed){Serial.println("Boot fixtures FAILED");header("Protocol/text/send check failed");while(true)delay(1000);}
   Serial.println("Message, network, Unicode, clock, delivery, management, terminal, scrolling, nearby discovery, field, antenna and bot fixtures passed");
@@ -1200,6 +1201,16 @@ void setup() {
   } else calibration();
   Serial.printf("Ready; free heap %u\n",ESP.getFreeHeap());
 }
+bool readButtonPoint(int& x,int& y){
+  touch_tools::Point samples[5];int count=0;
+  for(int i=0;i<5;i++){
+    if(touch.touched()){TS_Point raw=touch.getPoint();int px=lroundf(ax*raw.x+bx*raw.y+cx),py=lroundf(ay*raw.x+by*raw.y+cy);
+      if(px>=-4&&px<=323&&py>=-4&&py<=243)samples[count++]={px,py};}
+    if(i<4)delay(4);
+  }
+  touch_tools::Point result;if(!touch_tools::settled(samples,count,result))return false;
+  x=constrain(result.x,0,319);y=constrain(result.y,0,239);return true;
+}
 void loop() {
   if(startupReconnect){startupReconnect=false;connectRadio(true);}
   processReplies();
@@ -1218,8 +1229,7 @@ void loop() {
   if(down && !pressed) {
     bool waking=displayDimmed;lastTouchAt=millis();displayDimmed=false;ledcWrite(7,brightness);
     if(waking){refreshMessageScreen();pressed=down;delay(20);return;}
-    TS_Point p=touch.getPoint();
-    int x=lroundf(ax*p.x+bx*p.y+cx),y=lroundf(ay*p.x+by*p.y+cy);
+    int x,y;if(!readButtonPoint(x,y)){pressed=false;delay(5);return;}
     // Never log keypad coordinates: they would reveal the pairing PIN.
     if(internetTouch(x,y)) { /* Wi-Fi and weather. */ }
     else if(botTouch(x,y)) { /* Per-channel bot controls. */ }
